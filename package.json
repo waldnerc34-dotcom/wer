@@ -1,0 +1,30 @@
+{
+  "name": "apex-engine",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "APEX — a physically-based 3D racing simulator built on three.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "assets": "node scripts/fetch-assets.mjs",
+    "assets:optimize": "node scripts/optimize-assets.mjs"
+  },
+  "dependencies": {
+    "lil-gui": "^0.21.0",
+    "n8ao": "^2.0.1",
+    "postprocessing": "^6.39.4",
+    "three": "0.185.0",
+    "three-mesh-bvh": "^0.9.15"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.2.1",
+    "@gltf-transform/core": "^4.2.1",
+    "@gltf-transform/extensions": "^4.2.1",
+    "@gltf-transform/functions": "^4.2.1",
+    "playwright": "^1.63.0",
+    "sharp": "^0.34.4",
+    "vite": "^7.1.7"
+  }
+}

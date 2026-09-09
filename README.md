@@ -1,0 +1,207 @@
+# APEX
+
+A physically-based 3D racing simulator that runs in the browser.
+
+Real downloaded supercar models, captured HDRI lighting, a Pacejka tyre model
+with load sensitivity and thermal behaviour, raycast suspension with anti-roll
+bars, a limited-slip differential, and aerodynamics that actually change how
+the car behaves at 300 km/h.
+
+```bash
+npm install
+npm run dev          # http://localhost:5173
+```
+
+Assets are committed, so there is nothing else to fetch. `npm run build`
+produces a static `dist/` you can host anywhere.
+
+---
+
+## Controls
+
+| | |
+|---|---|
+| `W` / `S` | Throttle · brake |
+| `A` / `D` | Steer |
+| `Space` | Handbrake |
+| `Q` / `E` | Shift down · up (switches the box to manual) |
+| `V` | Cycle camera — chase, close, bonnet, cockpit, TV |
+| `C` | Look behind |
+| `R` | Rejoin the circuit |
+| `L` | Headlights |
+| `Esc` / `P` | Pause, driver aids, restart |
+
+A gamepad is picked up automatically (standard mapping: triggers for the
+pedals, left stick to steer, bumpers to shift).
+
+---
+
+## What is actually simulated
+
+The car is a six-degree-of-freedom rigid body. Nothing about its behaviour is
+scripted — understeer, snap oversteer, weight transfer under trail braking,
+wheelspin out of a hairpin and the way the car settles over a crest all fall
+out of the same loop.
+
+**Tyres** — `src/physics/TireModel.js`
+
+- Pacejka Magic Formula, evaluated on a **slip circle** so longitudinal and
+  lateral demand share one friction budget. A locked wheel cannot also steer.
+- **Load sensitivity**: peak grip rises less than linearly with vertical load,
+  so a car that transfers weight badly loses total grip.
+- **Relaxation length**: slip builds over distance travelled, not instantly.
+  This is what makes the car stable at walking pace and gives steering its
+  small, correct delay.
+- **Temperature**: grip peaks in a working window. Abuse the tyres through a
+  long corner and the outside front goes off — you can watch it happen on the
+  HUD.
+
+**Suspension** — `src/physics/Vehicle.js`
+
+Each corner raycasts the circuit, resolves a spring/damper strut with separate
+bump and rebound rates, adds a progressive bump stop, and couples left to right
+through an anti-roll bar. Vertical load from the strut feeds the tyre; the
+tyre's forces are applied back at the contact patch.
+
+**Driveline** — `src/physics/Drivetrain.js`
+
+A torque curve, an engine with its own inertia, a friction clutch that slips
+under launch and locks up when the driveline catches it, a seven-speed box that
+rev-matches on downshifts, and a limited-slip differential with preload and a
+speed-sensitive locking term.
+
+Two numerical details matter more than they look:
+
+- The hub-to-road coupling is extremely stiff — an explicit step at any sane
+  timestep rings itself apart. Wheel spin is integrated **semi-implicitly**,
+  linearised about the tyre's slip stiffness.
+- The clutch coupling is stiff for the same reason, worse by the square of the
+  gear ratio, so its slope is folded into the same implicit step.
+
+The simulation runs at a fixed 240 Hz, sub-stepped from the render frame.
+
+### Measured behaviour
+
+`node tests/physics.test.mjs` drives both cars on a synthetic proving ground —
+4 km straights and a 120 m skidpad — and reports:
+
+```
+=== Rosso 458 — 1440 kg, 597 hp, RWD ===
+  static: ride height 0.370 m · loads 2967/2967/4097/4097 N · 42% front
+  0-100 4.27s · 0-200 10.47s · 0-300 25.29s
+  top speed 337 km/h in gear 7 @ 7786 rpm
+  100-0 km/h in 28.9 m / 2.11 s (peak 1.45 g)
+  skidpad peak 1.36 g lateral @ 148 km/h (120 m radius)
+```
+
+Static corner loads sum to the car's weight at the authored 42% front bias,
+top speed and braking distance land where a real 458 does, and lateral grip
+climbs with speed as downforce arrives. Standing-start acceleration is about a
+second off a real launch-controlled car — the clutch model gives up that time
+pulling away, which is the one number here I would still call approximate.
+
+---
+
+## The circuit
+
+Circuits are authored the way real ones are described — a run of straights and
+constant-radius arcs, each with its own width, banking and elevation change
+(`src/track/Layout.js`). A hand-written list never closes the loop exactly, so
+a damped least-squares solve nudges the segment lengths and arc angles by the
+smallest amount that brings the end of the lap back onto its start, in both
+position and heading. Genuine straights and genuine constant-radius corners
+survive, which is what makes a circuit learnable.
+
+From that centreline, `Track.js` builds:
+
+- A **racing line**, by constrained Laplacian relaxation inside the track
+  corridor. Repeatedly pulling each point toward the midpoint of its neighbours
+  straightens the path; clamping to the usable width keeps it on the road. What
+  falls out approximates the minimum-curvature line, and both the AI and the
+  rubbered-in visual line follow it.
+- A **uniform spatial hash** so the physics can ask "what is under this point?"
+  in constant time. There are no mesh raycasts in the hot loop — surface
+  height, normal, banking and material are all answered analytically.
+
+`TrackBuilder.js` turns that into geometry: the road ribbon, kerbs that only
+exist where the track bends, run-off, gravel traps on the outside of the quick
+corners, Armco with instanced posts, tyre walls, the start gantry, and a
+terrain heightfield that matches the road surface exactly near the circuit and
+blends into rolling ground further out.
+
+The road carries two extra per-vertex channels the standard material knows
+nothing about: `aWear` (rubber laid down on the racing line, which darkens the
+surface and polishes it) and `aDust` (the marbles that collect off-line, which
+lighten it and kill the gloss). Both are baked at build time and folded in with
+a small shader patch, so they cost two varyings at runtime.
+
+**Apex International** — 4.4 km, 15 m of elevation change, 11 corners.
+**Costa Brava Sprint** — 2.4 km, faster and more flowing.
+
+---
+
+## Rendering
+
+three.js on WebGL2, with a post chain built on `postprocessing`:
+
+- Image-based lighting from a real captured HDRI, prefiltered through PMREM.
+- Cascaded shadow maps, so the shadow under the car stays sharp while the
+  treeline several hundred metres away still casts.
+- Ground-truth ambient occlusion (N8AO), bloom, a speed-driven radial blur,
+  chromatic aberration, vignette, film grain, and **AgX tone mapping** — which
+  holds highlights together far better than Reinhard on a scene lit by a real
+  HDRI.
+- Car paint is a metallic base coat under a near-perfect clear coat, with a
+  fine flake normal map that only affects the base layer.
+
+Three quality presets are selectable at launch and guessed from the device on
+first load.
+
+### Asset pipeline
+
+Every third-party asset is pinned to a specific upstream commit in
+`scripts/sources.mjs` and fetched by `npm run assets`. Credits are regenerated
+from that manifest into `public/assets/CREDITS.md`, so they cannot drift.
+
+`npm run assets:optimize` is available but not required — the committed assets
+are already usable as-is.
+
+There is no CC0 asphalt scan reachable from the mirrors this pins against, so
+the track surfaces are authored instead by `scripts/gen-textures.mjs`: a height
+field built from wrapped Worley cells (the aggregate) plus fBm grain (the
+binder), resolved into base colour, roughness and a Sobel-differentiated normal
+map. Everything is periodic, so it tiles without a seam. Kerbs, concrete, the
+smoke puff, the tyre-mark ribbon and the paint flake normal come from the same
+script.
+
+---
+
+## Layout
+
+```
+src/
+  core/       loaders, input, procedural engine audio, math
+  physics/    tyre model, drivetrain, 6-DOF chassis + suspension
+  track/      circuit authoring, runtime track model, geometry, scenery
+  render/     renderer + post chain, materials, car rig, particles
+  game/       session orchestration, AI drivers, camera, lap timing
+  ui/         HUD and menus
+scripts/      pinned asset manifest, fetcher, texture authoring
+tests/        physics validation harness
+```
+
+## Credits
+
+Every model, HDRI and photographic texture here was downloaded from a public
+repository — none of it is generated geometry. See
+[`public/assets/CREDITS.md`](public/assets/CREDITS.md) for the full list.
+
+- **Ferrari 458 Italia** — vicent091036, via the three.js examples (CC BY 4.0)
+- **Car Concept** — The Khronos Group (CC BY 4.0)
+- **Village Pack** trees, bushes and rocks — Babylon.js Assets (CC BY 4.0)
+- **HDRI environments** — Poly Haven (CC0), mirrored by three.js
+- **Grass and rocky-ground PBR maps** — Babylon.js Assets (CC BY 4.0)
+
+Built with [three.js](https://threejs.org),
+[postprocessing](https://github.com/pmndrs/postprocessing) and
+[N8AO](https://github.com/N8python/n8ao).
