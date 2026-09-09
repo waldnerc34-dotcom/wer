@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { approach, clamp, lerp, sign } from '../core/MathUtils.js';
 import { SURFACE_DRAG } from '../track/Track.js';
 import { Tyre, TYRE_SPECS } from './TireModel.js';
-import { Drivetrain, V8_NA, V10_TT } from './Drivetrain.js';
+import { Drivetrain, F6_TT, L6_RACE, V8_NA, V10_TT, V8_TT } from './Drivetrain.js';
 
 const GRAVITY = 9.81;
 const AIR_DENSITY = 1.225;
@@ -43,7 +43,9 @@ class Wheel {
     this.restLength = spec.restLength;
     this.maxTravel = spec.maxTravel;
 
-    this.tyre = new Tyre({ ...TYRE_SPECS[axle], radius: s.radius });
+    // A car may override the tyre model per axle — a classic on period
+    // rubber has nothing like a modern supercar's grip.
+    this.tyre = new Tyre({ ...TYRE_SPECS[axle], ...(s.tyre ?? {}), radius: s.radius });
 
     this.reset();
   }
@@ -886,6 +888,139 @@ export const CARS = [
         reboundDamping: 7600,
         antiRoll: 20000,
         maxBrakeTorque: 2100,
+      },
+    }),
+  },
+  {
+    id: 'porsche',
+    name: 'Porsche 911 Carrera 4S',
+    badge: 'Twin-turbo flat-six · AWD',
+    model: 'models/cars/porsche911.glb',
+    rig: 'porsche',
+    paint: 0x1c3f7a,
+    spec: supercar({
+      mass: 1565,
+      engine: F6_TT,
+      wheelbase: 2.45,
+      // Rear-engined: the mass sits over the back axle.
+      frontWeightBias: 0.39,
+      cogHeight: 0.4,
+      drivetrainLayout: 'awd',
+      frontTorqueSplit: 0.3,
+      dragArea: 0.62,
+      downforceFront: 0.2,
+      downforceRear: 0.34,
+      inertia: { pitch: 1800, yaw: 1700, roll: 430 },
+      front: {
+        track: 1.59,
+        radius: 0.33,
+        springRate: 55000,
+        bumpDamping: 3900,
+        reboundDamping: 5500,
+        antiRoll: 24000,
+        maxBrakeTorque: 3200,
+      },
+      rear: {
+        track: 1.56,
+        radius: 0.35,
+        springRate: 78000,
+        bumpDamping: 5000,
+        reboundDamping: 6900,
+        antiRoll: 15000,
+        maxBrakeTorque: 1900,
+      },
+    }),
+  },
+  {
+    id: 'urus',
+    name: 'Lamborghini Urus',
+    badge: 'Twin-turbo V8 · AWD · 2.2 t',
+    model: 'models/cars/urus.glb',
+    rig: 'urus',
+    paint: 0xc2410c,
+    spec: supercar({
+      mass: 2200,
+      engine: V8_TT,
+      wheelbase: 3.0,
+      frontWeightBias: 0.57,
+      // An SUV: tall, soft, and it leans — the active anti-roll bars are
+      // what keep it on its wheels.
+      cogHeight: 0.62,
+      restLength: 0.26,
+      maxTravel: 0.12,
+      maxSteerAngle: 0.52,
+      steerLimitAccel: 9,
+      aiGrip: 0.86,
+      drivetrainLayout: 'awd',
+      frontTorqueSplit: 0.4,
+      dragArea: 1.05,
+      downforceFront: 0.05,
+      downforceRear: 0.1,
+      inertia: { pitch: 4200, yaw: 3900, roll: 1100 },
+      front: {
+        track: 1.7,
+        radius: 0.38,
+        springRate: 78000,
+        bumpDamping: 6800,
+        reboundDamping: 9000,
+        antiRoll: 60000,
+        maxBrakeTorque: 4200,
+      },
+      rear: {
+        track: 1.71,
+        radius: 0.39,
+        springRate: 88000,
+        bumpDamping: 7400,
+        reboundDamping: 9800,
+        antiRoll: 50000,
+        maxBrakeTorque: 2600,
+      },
+    }),
+  },
+  {
+    id: 'datsun',
+    name: '1972 Datsun 240K GT',
+    badge: 'Straight-six · RWD · classic',
+    model: 'models/cars/datsun240k.glb',
+    rig: 'datsun',
+    paint: 0xd3541f,
+    spec: supercar({
+      mass: 1150,
+      engine: L6_RACE,
+      wheelbase: 2.61,
+      frontWeightBias: 0.54,
+      // Nineteen-seventies chassis: soft springs, a high centre of gravity,
+      // narrow road tyres with a fraction of a modern slick's grip, and a
+      // body that makes lift rather than downforce.
+      cogHeight: 0.5,
+      restLength: 0.24,
+      maxTravel: 0.12,
+      maxSteerAngle: 0.62,
+      steerRate: 3.0,
+      aiGrip: 0.72,
+      dragArea: 0.85,
+      downforceFront: 0.0,
+      downforceRear: 0.02,
+      inertia: { pitch: 1900, yaw: 1750, roll: 450 },
+      front: {
+        track: 1.4,
+        radius: 0.31,
+        springRate: 28000,
+        bumpDamping: 2400,
+        reboundDamping: 3400,
+        antiRoll: 12000,
+        maxBrakeTorque: 1900,
+        tyre: { mu: 1.08, alphaPeak: 0.14, kappaPeak: 0.1, relaxLat: 0.55 },
+      },
+      rear: {
+        track: 1.39,
+        radius: 0.31,
+        springRate: 32000,
+        bumpDamping: 2700,
+        reboundDamping: 3800,
+        antiRoll: 4000,
+        maxBrakeTorque: 1200,
+        tyre: { mu: 1.1, alphaPeak: 0.14, kappaPeak: 0.1, relaxLat: 0.55 },
       },
     }),
   },

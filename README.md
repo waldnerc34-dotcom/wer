@@ -2,7 +2,7 @@
 
 A physically-based 3D racing simulator that runs in the browser.
 
-Real downloaded supercar models, captured HDRI lighting, a Pacejka tyre model
+Five real downloaded car models, captured HDRI lighting, a Pacejka tyre model
 with load sensitivity and thermal behaviour, raycast suspension with anti-roll
 bars, a limited-slip differential, and aerodynamics that actually change how
 the car behaves at 300 km/h. Five circuits, six weathers — from a clear
@@ -29,21 +29,25 @@ produces a static `dist/` you can host anywhere.
 
 ## As a single file
 
-`npm run build:artifact` packs the entire game — code, both cars, the
-scenery, the surface maps and one sky — into `artifact/apex.html`, a page
-with no network dependencies at all. It is built for hosts that run scripts
+`npm run build:artifact` packs the entire game — code, four of the five
+cars, the scenery, the surface maps and one sky — into `artifact/apex.html`,
+a page with no network dependencies at all. It is built for hosts that run scripts
 but never let a page fetch: a chat artifact, an email attachment, a USB stick.
 
 To fit that under a 16 MB ceiling without a mesh decoder (decoders need
 workers or wasm, which such hosts may refuse), the packer re-encodes the
 models with KHR_mesh_quantization, which three.js reads natively, prunes
-vertex attributes no material reads, simplifies the concept car to about half
-its triangles, halves the surface maps to 512², and turns every model texture
-into a data: URI so the loader never fetches or creates a blob. (The Ferrari
-barely simplifies — it is unwelded triangle soup, so every edge is a border —
-and keeps its full 359k triangles; its savings come from the pruning and the
-quantisation.) The loader's embedded mode
-(`src/core/Assets.js`) parses models and the HDRI straight from memory.
+vertex attributes no material reads, simplifies each car to a budget, halves
+the surface maps to 512², and turns every model texture into a data: URI so
+the loader never fetches or creates a blob. The Ferrari needs more: it is
+unwelded triangle soup, every vertex owned by one face with its own normal
+and its own patch of a baked-AO UV layout, so nothing welds and nothing
+simplifies. The packer strips those attributes, welds on position alone,
+simplifies, and recomputes smooth normals — 5.1 MB becomes 1.4 MB, which is
+what makes room for four cars. The Datsun, with 4 MB of textures, is the one
+that stays on the site build; a build only lists the cars it can load. The
+loader's embedded mode (`src/core/Assets.js`) parses models and the HDRI
+straight from memory.
 
 `npm run serve:artifact` serves that file under a Content-Security-Policy
 stricter than any plausible sandbox — nothing fetchable, no blob:, no
@@ -217,6 +221,41 @@ pulling away, which is the one number here I would still call approximate.
 
 ---
 
+## The cars
+
+Every car is a downloaded model of a real car, driven by its own physics
+specification — mass, weight distribution, centre of gravity, springs,
+dampers, anti-roll bars, brakes, tyre size and grip, drag, downforce, engine
+torque curve and gearing (`CARS` in `src/physics/Vehicle.js`).
+
+| | Engine | Layout | Model |
+|---|---|---|---|
+| **Rosso 458** | 4.5 V8, 597 hp | mid-engine, RWD | Ferrari 458 Italia — vicent091036, CC BY 4.0 |
+| **Khronos Concept** | 5.2 V10 twin-turbo, 681 hp | AWD | Car Concept — The Khronos Group, CC BY 4.0 |
+| **Porsche 911 Carrera 4S** | 3.0 flat-six twin-turbo, 438 hp | rear-engine, AWD | Karol Miklas, CC BY-SA 4.0 |
+| **Lamborghini Urus** | 4.0 V8 twin-turbo, 618 hp | AWD, 2.2 t SUV | Steven Grey, CC BY-NC 4.0 (non-commercial) |
+| **1972 Datsun 240K GT** | 2.4 straight-six in period race trim, 196 hp | RWD | Karol Miklas, CC BY-SA 4.0 |
+
+They drive differently because they *are* different: the 911 carries its
+mass over the back axle, the Urus is tall and soft and leans on its active
+anti-roll bars, and the Datsun sits on narrow period tyres with two thirds
+of a modern slick's grip and a body that makes lift rather than downforce.
+The AI plans each car's cornering budget from its specification.
+
+Models arrive from different artists in different states — centimetre
+scales, baked rotations, wheels merged in left/right pairs, or the whole
+car in one mesh with a dozen material slots. `scripts/prepare-cars.mjs`
+normalises them: it bakes every transform into the vertices, drops geometry
+the game replaces (a separate clear-coat shell, ground planes), finds the
+four tyres and carves everything inside each wheel's cylinder — tyre, rim,
+disc, caliper, hub — out onto its own centred `wheel_fl` … `wheel_rr` node
+that the rig can steer and spin, renames materials to the rig's vocabulary,
+and simplifies the heaviest to a sensible budget. The measured figures for
+all five (0–100, top speed, braking, skidpad) come out of
+`tests/physics.test.mjs`.
+
+---
+
 ## The AI
 
 Opponents drive the same physics as the player — no rails, no scripted speeds.
@@ -374,6 +413,11 @@ repository — none of it is generated geometry. See
 
 - **Ferrari 458 Italia** — vicent091036, via the three.js examples (CC BY 4.0)
 - **Car Concept** — The Khronos Group (CC BY 4.0)
+- **Porsche 911 Carrera 4S** and **1972 Datsun 240K GT** — Karol Miklas, via
+  pmndrs/examples (CC BY-SA 4.0)
+- **Lamborghini Urus** — Steven Grey, via pmndrs/examples (CC BY-NC 4.0 —
+  non-commercial use only; remove `urus` from the manifest for a commercial
+  build)
 - **Village Pack** trees, bushes and rocks — Babylon.js Assets (CC BY 4.0)
 - **HDRI environments** — Poly Haven (CC0), mirrored by three.js
 - **Grass and rocky-ground PBR maps** — Babylon.js Assets (CC BY 4.0)

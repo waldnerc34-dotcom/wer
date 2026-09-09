@@ -7,7 +7,7 @@
  * the committed models are the output of this pass. Re-running it on already
  * optimised files is harmless.
  *
- *   node scripts/optimize-assets.mjs [--dry]
+ *   node scripts/optimize-assets.mjs [--dry] [--only <substring>]
  */
 
 import { readdir, stat, writeFile } from 'node:fs/promises';
@@ -23,6 +23,9 @@ import sharp from 'sharp';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MODELS = join(ROOT, 'public', 'assets', 'models');
 const DRY = process.argv.includes('--dry');
+// `--only <substring>` restricts the pass to matching files, so a newly added
+// model can be compressed without re-encoding every other one.
+const ONLY = process.argv.includes('--only') ? process.argv[process.argv.indexOf('--only') + 1] : null;
 
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({
   'draco3d.encoder': await draco3d.createEncoderModule(),
@@ -41,6 +44,7 @@ let before = 0;
 let after = 0;
 
 for await (const file of walk(MODELS)) {
+  if (ONLY && !file.includes(ONLY)) continue;
   const sizeBefore = (await stat(file)).size;
   before += sizeBefore;
 

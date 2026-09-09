@@ -31,6 +31,11 @@ function bytesOf(base64) {
  * loading screen can show something honest rather than a fake bar.
  */
 export class Assets {
+  /** Whether a build can load this asset at all — single-file builds carry a subset. */
+  static available(path) {
+    return !EMBEDDED || Boolean(EMBEDDED[path]);
+  }
+
   constructor(renderer) {
     this.renderer = renderer;
     this.manager = new THREE.LoadingManager();

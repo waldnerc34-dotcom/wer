@@ -1,7 +1,7 @@
 import './ui/style.css';
 
 import { TouchControls } from './core/Touch.js';
-import { Game } from './game/Game.js';
+import { Game, availableCars } from './game/Game.js';
 import { HUD } from './ui/HUD.js';
 import { Menu } from './ui/Menu.js';
 
@@ -15,7 +15,7 @@ const touchRoot = document.getElementById('touch');
 const IS_TOUCH = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 document.documentElement.classList.toggle('is-touch', IS_TOUCH);
 
-const menu = new Menu(overlay, { touch: IS_TOUCH });
+const menu = new Menu(overlay, { touch: IS_TOUCH, cars: availableCars() });
 let game = null;
 let hud = null;
 let touch = null;

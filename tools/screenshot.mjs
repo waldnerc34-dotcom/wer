@@ -31,8 +31,9 @@ await page.waitForTimeout(1000);
 await page.screenshot({ path: `${P}/01-menu.png` });
 // Optional: CAR=concept picks the second car; MODE=race exercises the AI
 // field; WEATHER=rain|storm|fog|night|overcast; CIRCUIT=<part of the name>.
-if (process.env.CAR === 'concept') {
-  await page.getByRole('button', { name: /Khronos/ }).click();
+if (process.env.CAR) {
+  const re = new RegExp(process.env.CAR === 'concept' ? 'Khronos' : process.env.CAR, 'i');
+  await page.locator('[data-field="car"] .choice').filter({ hasText: re }).first().click();
 }
 if (process.env.MODE === 'race') {
   await page.getByRole('button', { name: /Race/ }).click();

@@ -188,8 +188,11 @@ export class Driver {
       // m/s² the car can actually produce: a driver that plans to use every
       // last newton arrives at the apex with nothing left for corrections.
       // The profile itself scales with what the weather leaves of the tarmac.
-      const lateralG = lerp(7.6, 10.4, this.skill);
-      const brakingG = lerp(7.4, 10.2, this.skill);
+      // A car on narrow period tyres, or a two-tonne SUV, cannot corner
+      // like a supercar; the spec says how much of that budget it has.
+      const grip = this.vehicle.spec.aiGrip ?? 1;
+      const lateralG = lerp(7.6, 10.4, this.skill) * grip;
+      const brakingG = lerp(7.4, 10.2, this.skill) * grip;
       if (!this.pacing) {
         this.pacing = new Pacing(track, { lateralG, brakingG, topSpeed: 140, forwardPass: false });
       } else {

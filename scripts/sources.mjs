@@ -18,6 +18,12 @@ export const REPOS = {
     base: 'https://raw.githubusercontent.com/BabylonJS/Assets',
     sha: '8be9384c7f8728cb45d27975ac92a412f97a98dd',
   },
+  // The react-three-fiber examples monorepo carries several Sketchfab cars
+  // with their licences recorded in the example sources.
+  pmndrs: {
+    base: 'https://raw.githubusercontent.com/pmndrs/examples',
+    sha: '6ea1379e3163aa413970fea2e6b7b3e59b63d2c4',
+  },
 };
 
 /** repo, remote path, local path (relative to public/assets), credit */
@@ -40,6 +46,29 @@ export const ASSETS = [
     from: 'Models/CarConcept/glTF-Binary/CarConcept.glb',
     to: 'models/cars/concept.glb',
     credit: 'Car Concept — The Khronos Group, CC BY 4.0',
+  },
+  // Rig-ready versions of these are produced by scripts/prepare-cars.mjs:
+  // wheels split out onto hubs, materials renamed to what the car rig expects.
+  {
+    repo: 'pmndrs',
+    from: 'examples/building-live-envmaps/src/911-transformed.glb',
+    to: 'models/cars/porsche911.glb',
+    credit:
+      'Porsche 911 Carrera 4S — Karol Miklas (sketchfab.com/karolmiklas, via pmndrs/examples), CC BY-SA 4.0',
+  },
+  {
+    repo: 'pmndrs',
+    from: 'examples/stage-presets-gltfjsx/src/datsun-transformed.glb',
+    to: 'models/cars/datsun240k.glb',
+    credit:
+      '1972 Datsun 240K GT — Karol Miklas (sketchfab.com/karolmiklas, via pmndrs/examples), CC BY-SA 4.0',
+  },
+  {
+    repo: 'pmndrs',
+    from: 'examples/building-dynamic-envmaps/src/lambo.glb',
+    to: 'models/cars/urus.glb',
+    credit:
+      'Lamborghini Urus — Steven Grey (sketchfab.com/Steven007, via pmndrs/examples), CC BY-NC 4.0 — non-commercial use only',
   },
 
   // ------------------------------------------------------------- lighting ---

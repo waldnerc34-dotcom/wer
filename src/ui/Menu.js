@@ -9,12 +9,13 @@ import { formatLap } from '../game/Timing.js';
  * end-of-session results. All plain DOM rendered into one overlay element.
  */
 export class Menu {
-  constructor(root, { touch = false } = {}) {
+  constructor(root, { touch = false, cars = CARS } = {}) {
     this.root = root;
     this.touch = touch;
+    this.cars = cars;
     this.selection = {
       circuitId: CIRCUITS[0].id,
-      carId: CARS[0].id,
+      carId: cars[0].id,
       mode: 'time-trial',
       quality: guessQuality(touch),
       // Three AI cars is plenty for a phone's CPU; five on a desktop.
@@ -66,7 +67,7 @@ export class Menu {
       </div>
     `;
 
-    this.#choices(card, 'car', CARS.map((c) => ({
+    this.#choices(card, 'car', this.cars.map((c) => ({
       id: c.id,
       label: c.name,
       note: c.badge,

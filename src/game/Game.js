@@ -24,6 +24,12 @@ import { Weather } from './Weather.js';
 
 const PAINTS = [0x9d0208, 0x0b3d91, 0xf2f2f0, 0x111214, 0xd6a419, 0x1f6f4a, 0x6d28d9, 0xc2410c];
 
+/** The cars this build can actually load: the single-file build embeds a subset. */
+export function availableCars() {
+  const cars = CARS.filter((c) => Assets.available(c.model));
+  return cars.length ? cars : [CARS[0]];
+}
+
 /**
  * The session: one circuit, one player car, and a field of AI.
  *
@@ -80,7 +86,8 @@ export class Game {
 
     this.mode = mode;
     const circuit = CIRCUITS.find((c) => c.id === circuitId) ?? CIRCUITS[0];
-    const carDef = CARS.find((c) => c.id === carId) ?? CARS[0];
+    const roster = availableCars();
+    const carDef = roster.find((c) => c.id === carId) ?? roster[0];
     this.circuit = circuit;
     this.carDef = carDef;
 
@@ -157,8 +164,11 @@ export class Game {
 
     // Opponents.
     const field = makeField(opponentCount);
+    const roster = availableCars();
+    const mine = Math.max(0, roster.indexOf(carDef));
     for (let i = 0; i < opponentCount; i++) {
-      const def = CARS[(i + 1) % CARS.length];
+      // Everyone else in the field, in turn, then the player's own model.
+      const def = roster[(mine + 1 + i) % roster.length];
       const model = await this.assets.instance(def.model);
       const vehicle = new Vehicle(def.spec, this.track);
       const rig = new CarRig(model, def.spec, this.materials, {

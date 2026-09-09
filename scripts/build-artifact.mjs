@@ -35,14 +35,18 @@ const LIMIT_MB = 16;
 
 const MODELS = [
   // The concept car simplifies well: 213k → ~102k triangles with no visible
-  // change from a chase camera. The Ferrari does not — it is unwelded
-  // triangle soup, every vertex owned by one face with its own normal, so
-  // every edge is a border and the simplifier can collapse almost nothing
-  // (359k → ~310k at best, whatever the error bound). Its savings come from
-  // pruning unused vertex attributes and quantisation instead; the modest
-  // pass here is kept because it is free.
-  { path: 'models/cars/ferrari.glb', texture: 1024, simplify: { ratio: 0.32, error: 0.006 } },
-  { path: 'models/cars/concept.glb', texture: 768, simplify: { ratio: 0.42, error: 0.0012 } },
+  // change from a chase camera. The Ferrari is unwelded triangle soup —
+  // every vertex owned by one face, with its own normal and its own patch
+  // of the baked-AO UV layout — so nothing welds and the simplifier can
+  // collapse almost nothing. `rebuild` throws those attributes away, welds
+  // on position alone, simplifies, and recomputes smooth normals: 5.1 MB of
+  // geometry becomes 1.4 MB, at the cost of the baked ambient occlusion
+  // (which the screen-space AO covers) and a little crispness on panel
+  // creases. That is what makes room for four cars in one page.
+  { path: 'models/cars/ferrari.glb', texture: 1024, rebuild: true, simplify: { ratio: 0.35, error: 0.004 } },
+  { path: 'models/cars/concept.glb', texture: 512, simplify: { ratio: 0.36, error: 0.0015 } },
+  { path: 'models/cars/porsche911.glb', texture: 768, simplify: { ratio: 0.42, error: 0.0012 } },
+  { path: 'models/cars/urus.glb', texture: 768, simplify: { ratio: 0.55, error: 0.0012 } },
   ...['tree3', 'tree4', 'bush1', 'bush2', 'bush3', 'bush4', 'bush5', 'rocks1', 'rocks2', 'rocks3', 'rocks4'].map(
     (n) => ({ path: `models/scenery/${n}.glb`, texture: 256, simplify: null }),
   ),
@@ -74,7 +78,43 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
 });
 await MeshoptSimplifier.ready;
 
-async function packModel({ path, texture, simplify: simp }) {
+/** Area-weighted smooth normals over an indexed primitive, in place. */
+function smoothNormals(doc, prim) {
+  const pos = prim.getAttribute('POSITION');
+  const idx = prim.getIndices();
+  if (!pos || !idx) return;
+  const n = pos.getCount();
+  const acc = new Float32Array(n * 3);
+  const a = [0, 0, 0];
+  const b = [0, 0, 0];
+  const c = [0, 0, 0];
+  for (let i = 0; i < idx.getCount(); i += 3) {
+    const ia = idx.getScalar(i);
+    const ib = idx.getScalar(i + 1);
+    const ic = idx.getScalar(i + 2);
+    pos.getElement(ia, a);
+    pos.getElement(ib, b);
+    pos.getElement(ic, c);
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    // The cross product's length is twice the area: bigger faces weigh more.
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    for (const k of [ia, ib, ic]) {
+      acc[k * 3] += nx;
+      acc[k * 3 + 1] += ny;
+      acc[k * 3 + 2] += nz;
+    }
+  }
+  for (let k = 0; k < n; k++) {
+    const l = Math.hypot(acc[k * 3], acc[k * 3 + 1], acc[k * 3 + 2]) || 1;
+    acc[k * 3] /= l;
+    acc[k * 3 + 1] /= l;
+    acc[k * 3 + 2] /= l;
+  }
+  prim.setAttribute('NORMAL', doc.createAccessor().setType('VEC3').setArray(acc));
+}
+
+async function packModel({ path, texture, simplify: simp, rebuild = false }) {
   const doc = await io.read(join(ASSETS, path));
   doc.setLogger(new Logger(Logger.Verbosity.ERROR));
 
@@ -85,19 +125,36 @@ async function packModel({ path, texture, simplify: simp }) {
     if (ext.extensionName === 'KHR_draco_mesh_compression') ext.dispose();
   }
 
+  if (rebuild) {
+    // Position is the only attribute that survives; everything that stopped
+    // the vertices welding goes, and the material that read the baked AO
+    // through those UVs loses it.
+    for (const m of doc.getRoot().listMeshes()) {
+      for (const p of m.listPrimitives()) {
+        for (const semantic of p.listSemantics()) if (semantic !== 'POSITION') p.setAttribute(semantic, null);
+      }
+    }
+    for (const m of doc.getRoot().listMaterials()) m.setOcclusionTexture(null);
+  }
+
   const steps = [
     dedup({ propertyTypes: ['Accessor', 'Texture', 'Mesh'] }),
     // keepAttributes: false drops vertex data no material reads — tangents on
     // a material with no normal map are a quarter of a vertex's bytes.
     prune({ keepLeaves: true, keepAttributes: false }),
-    weld(),
+    rebuild ? weld({ tolerance: 0.0003 }) : weld(),
   ];
   if (simp) steps.push(simplify({ simplifier: MeshoptSimplifier, ratio: simp.ratio, error: simp.error }));
-  steps.push(
+  await doc.transform(...steps);
+
+  if (rebuild) {
+    for (const m of doc.getRoot().listMeshes()) for (const p of m.listPrimitives()) smoothNormals(doc, p);
+  }
+
+  await doc.transform(
     textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [texture, texture], quality: 82 }),
     quantize({ quantizePosition: 14, quantizeNormal: 8, quantizeTexcoord: 12, quantizeColor: 8 }),
   );
-  await doc.transform(...steps);
 
   // Write as separate JSON + resources, then assemble a GLB by hand: the
   // geometry buffer becomes the binary chunk, and every image becomes a
