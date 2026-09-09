@@ -29,6 +29,7 @@ export class HUD {
       bestLap: root.querySelector('[data-best-lap]'),
       delta: root.querySelector('[data-delta]'),
       corner: root.querySelector('[data-corner]'),
+      pace: root.querySelector('[data-pace]'),
       position: root.querySelector('[data-position]'),
       warn: root.querySelector('[data-warn]'),
       tyres: root.querySelector('[data-tyres]'),
@@ -176,6 +177,11 @@ export class HUD {
       state.sectors.map((s) => (s ? s.toFixed(2) : '—')).join('  ·  '),
     );
     this.#set('corner', e.corner, state.corner ?? '');
+
+    // What the arrows on the road are saying right here, as words.
+    const pace = state.racingLine === false ? -1 : state.pace ?? -1;
+    this.#set('pace', e.pace, PACE_LABELS[pace] ?? '');
+    e.pace.className = `pace p${pace}`;
     this.#set(
       'position',
       e.position,
@@ -251,6 +257,9 @@ function tyreColour(temp) {
   return '#ef4444';
 }
 
+/** Indexed by the pacing phase: accelerate, hold, brake. */
+const PACE_LABELS = ['ACCELERATE', 'EASE OFF', 'BRAKE'];
+
 const TEMPLATE = /* html */ `
 <div class="hud-top">
   <div class="panel timing">
@@ -262,6 +271,7 @@ const TEMPLATE = /* html */ `
   </div>
   <div class="centre">
     <div data-delta class="delta"></div>
+    <div data-pace class="pace"></div>
     <div data-corner class="corner"></div>
     <div data-warn class="warn"></div>
   </div>

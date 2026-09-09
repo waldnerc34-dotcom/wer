@@ -3,12 +3,15 @@ import * as THREE from 'three';
 import { Assets } from '../core/Assets.js';
 import { EngineAudio } from '../core/Audio.js';
 import { Input } from '../core/Input.js';
-import { clamp, damp } from '../core/MathUtils.js';
+import { clamp, damp, wrapDelta } from '../core/MathUtils.js';
 import { CarRig } from '../render/CarRig.js';
 import { TyreEffects } from '../render/Effects.js';
 import { Materials } from '../render/Materials.js';
+import { RacingLineMesh } from '../render/RacingLine.js';
+import { RainSystem } from '../render/Rain.js';
 import { QUALITY, Renderer } from '../render/Renderer.js';
 import { CIRCUITS } from '../track/Layout.js';
+import { Pacing } from '../track/Pacing.js';
 import { SURFACE } from '../track/Track.js';
 import { Scenery } from '../track/Scenery.js';
 import { Track } from '../track/Track.js';
@@ -17,6 +20,7 @@ import { CARS, Vehicle } from '../physics/Vehicle.js';
 import { Driver, makeField } from './AI.js';
 import { ChaseCamera } from './Camera.js';
 import { LapTimer } from './Timing.js';
+import { Weather } from './Weather.js';
 
 const PAINTS = [0x9d0208, 0x0b3d91, 0xf2f2f0, 0x111214, 0xd6a419, 0x1f6f4a, 0x6d28d9, 0xc2410c];
 
@@ -39,6 +43,11 @@ export class Game {
     this.input = new Input();
     this.audio = new EngineAudio();
     this.materials = new Materials();
+    this.weather = new Weather(this);
+
+    // The pacing arrows are on by default: they are how a new driver learns
+    // where to brake. Remembered between sessions.
+    this.showRacingLine = readPref('apex.racingLine', true);
 
     this.opponents = [];
     this.paused = false;
@@ -59,7 +68,13 @@ export class Game {
   /**
    * Builds a session. Safe to call again to switch car, circuit or mode.
    */
-  async load({ circuitId = 'apex', carId = 'rosso', mode = 'time-trial', opponents = 5 } = {}) {
+  async load({
+    circuitId = 'apex',
+    carId = 'rosso',
+    mode = 'time-trial',
+    opponents = 5,
+    weather = 'clear',
+  } = {}) {
     this.running = false;
     this.#teardown();
 
@@ -71,23 +86,24 @@ export class Game {
 
     this.onProgress?.(0.02, 'Surveying the circuit');
     this.track = new Track(circuit);
+    // The ideal speed profile for this car on this lap: drives the arrows.
+    this.pacing = new Pacing(this.track, pacingCar(carDef.spec));
 
     this.onProgress?.(0.08, 'Loading materials');
     await this.materials.load(this.assets);
 
-    this.onProgress?.(0.24, 'Lighting the scene');
-    const env = await this.assets.environment(circuit.hdri);
-    this.renderer.setEnvironment(env, { groundRadius: 2100, groundHeight: 88 });
-    this.renderer.skyboxY = this.track.pos[1] - 1.5;
-    this.renderer.setSun(circuit.sunAzimuth, circuit.sunElevation);
-    // Aerial perspective only: enough to soften the far treeline, not
-    // enough to bleach the middle distance.
-    this.renderer.setFog(new THREE.Color(0xa8bacd), 620, 3400);
+    this.onProgress?.(0.24, 'Reading the sky');
+    // Fetched here so the progress bar is honest; the weather dresses it.
+    await this.assets.environment(circuit.hdri);
 
     this.onProgress?.(0.38, 'Laying the tarmac');
     const built = buildTrack(this.track, this.materials);
     this.trackGroup = built.group;
     this.renderer.scene.add(this.trackGroup);
+
+    this.racingLine = new RacingLineMesh(this.track, this.pacing, { spacing: 5 });
+    this.racingLine.visible = this.showRacingLine;
+    this.renderer.scene.add(this.racingLine.mesh);
 
     this.onProgress?.(0.52, 'Planting the trees');
     this.scenery = new Scenery(this.track, {
@@ -98,6 +114,12 @@ export class Game {
 
     this.onProgress?.(0.72, 'Warming the cars');
     await this.#spawnCars(carDef, mode === 'race' ? opponents : 0);
+
+    this.onProgress?.(0.86, 'Setting the weather');
+    const settings = this.renderer.settings;
+    this.rain = new RainSystem({ count: settings.rainCount ?? ((settings.particles ?? 700) <= 300 ? 1500 : 3600) });
+    this.renderer.scene.add(this.rain.mesh);
+    await this.weather.apply(weather);
 
     this.onProgress?.(0.94, 'Final checks');
     this.effects = new TyreEffects(this.renderer.scene, this.materials, {
@@ -182,9 +204,18 @@ export class Game {
     }
     this.opponents = [];
     if (this.effects) {
-      this.renderer.scene.remove(this.effects.smoke.mesh);
-      for (const m of this.effects.marks) this.renderer.scene.remove(m.mesh);
+      for (const m of this.effects.meshes) this.renderer.scene.remove(m);
       this.effects = null;
+    }
+    if (this.racingLine) {
+      this.renderer.scene.remove(this.racingLine.mesh);
+      this.racingLine.mesh.geometry.dispose();
+      this.racingLine = null;
+    }
+    if (this.rain) {
+      this.renderer.scene.remove(this.rain.mesh);
+      this.rain.mesh.geometry.dispose();
+      this.rain = null;
     }
   }
 
@@ -236,8 +267,8 @@ export class Game {
       const c = o.driver.update(dt, all);
       o.vehicle.update(dt, c);
       o.rig.update(o.vehicle, dt);
-      const q = this.track.query(o.vehicle.position.x, o.vehicle.position.z, {});
-      o.timer.update(dt, q.s, false);
+      o.q = this.track.query(o.vehicle.position.x, o.vehicle.position.z, o.q ?? {});
+      o.timer.update(dt, o.q.s, false);
     }
 
     this.#resolveCarCollisions();
@@ -249,6 +280,8 @@ export class Game {
     const offTrack = player.wheels.every((w) => w.surface > SURFACE.KERB);
     this.timer.update(dt, q.s, offTrack);
 
+    this.#slipstream(q);
+
     /* -- visuals ---------------------------------------------------------- */
     this.playerRig.update(player, dt);
     this.effects.update(player, dt, this.renderer.camera);
@@ -257,15 +290,54 @@ export class Game {
     const impact = player.lastImpact ? clamp(player.lastImpact / 14, 0, 1) : 0;
     if (player.lastImpact) {
       this.audio.impact(impact);
+      this.effects.impact(player, impact);
       player.lastImpact = 0;
     }
     this.renderer.setSkyboxCentre(player.position);
     this.camera.update(player, dt, impact);
+    this.rain?.update(dt, this.renderer.camera);
     this.renderer.setSpeedBlur(player.speedKph);
 
     this.audio.update(player, dt);
 
     this.onState?.(this.state());
+  }
+
+  /**
+   * Slipstream: a car tucked in behind another sits in its wake and pays less
+   * drag — and, with the clean air gone, loses some of its downforce too.
+   * That is what makes the tow worth having on the straight and a liability
+   * into the braking zone.
+   */
+  #slipstream(playerQ) {
+    const cars = [{ vehicle: this.player, q: playerQ }, ...this.opponents];
+    for (const a of cars) {
+      let scale = 1;
+      if (a.q) {
+        for (const b of cars) {
+          if (a === b || !b.q) continue;
+          const gap = wrapDelta(b.q.s, a.q.s, this.track.length);
+          if (gap < 3 || gap > 34) continue;
+          const across = Math.abs(b.q.lateral - a.q.lateral);
+          if (across > 3.2) continue;
+          const tuck = (1 - clamp((gap - 8) / 26, 0, 1)) * (1 - clamp((across - 1.4) / 1.8, 0, 1));
+          scale = Math.min(scale, 1 - 0.3 * tuck);
+        }
+      }
+      a.vehicle.dragScale = scale;
+    }
+  }
+
+  /** Shows or hides the pacing arrows on the road. */
+  setRacingLine(on) {
+    this.showRacingLine = Boolean(on);
+    if (this.racingLine) this.racingLine.visible = this.showRacingLine;
+    writePref('apex.racingLine', this.showRacingLine);
+  }
+
+  /** Switches weather mid-session. */
+  async setWeather(id) {
+    return this.weather.apply(id);
   }
 
   /** Attaches on-screen controls (phones and tablets). */
@@ -426,6 +498,11 @@ export class Game {
       progress: this.playerQuery ? this.playerQuery.s / this.track.length : 0,
       trackName: this.circuit.name,
       carName: this.carDef.name,
+      weather: this.weather.current?.label ?? 'Clear',
+      wet: this.track.wetness,
+      racingLine: this.showRacingLine,
+      pace: this.pacing.phaseAt(this.playerQuery?.s ?? 0),
+      paceSpeedKph: this.pacing.speedAt(this.playerQuery?.s ?? 0) * 3.6,
     };
   }
 
@@ -463,6 +540,38 @@ class FrameClock {
     const dt = now - this.last;
     this.last = now;
     return dt;
+  }
+}
+
+/** What the pacing profile needs to know about a car. */
+function pacingCar(spec) {
+  let kw = 0;
+  for (const [rpm, nm] of spec.engine?.torqueCurve ?? []) {
+    kw = Math.max(kw, (nm * rpm * Math.PI * 2) / 60 / 1000);
+  }
+  return {
+    lateralG: 11.2,
+    brakingG: 11.5,
+    mass: spec.mass ?? 1440,
+    powerKw: kw || 340,
+    topSpeed: 95,
+  };
+}
+
+function readPref(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : v !== '0';
+  } catch {
+    return fallback;
+  }
+}
+
+function writePref(key, value) {
+  try {
+    localStorage.setItem(key, value ? '1' : '0');
+  } catch {
+    /* private mode */
   }
 }
 

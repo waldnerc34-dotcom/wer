@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
-import { approach as approachTo, clamp, damp, lerp, wrap, wrapDelta } from '../core/MathUtils.js';
+import { approach as approachTo, clamp, damp, lerp, wrapDelta } from '../core/MathUtils.js';
+import { Pacing } from '../track/Pacing.js';
 
 const _v = new THREE.Vector3();
 const _target = new THREE.Vector3();
@@ -32,6 +33,11 @@ export class Driver {
     this.recoverTimer = 0;
     this.noisePhase = Math.random() * 100;
     this.q = {};
+
+    // The speed profile this driver plans to, built for the grip they are
+    // willing to use and rebuilt when the weather changes it.
+    this.pacing = null;
+    this.pacingWet = -1;
   }
 
   /**
@@ -122,6 +128,17 @@ export class Driver {
     // driver asked for and runs wide.
     steer *= v.spec.maxSteerAngle / (v.steerLock || v.spec.maxSteerAngle);
 
+    // Understeer: once the front tyres are past their peak slip angle, more
+    // lock gives *less* cornering force, and a driver who keeps winding it
+    // on runs wider and wider. Unwind instead, so the fronts sit at their
+    // peak — the only place the car turns hardest.
+    const front = v.wheels[0].tyre;
+    const frontSlip = (Math.abs(front.alpha) + Math.abs(v.wheels[1].tyre.alpha)) / 2;
+    const peak = front.alphaPeak * 1.12;
+    if (frontSlip > peak && speed > 8 && Math.sign(steer) === Math.sign(v.steerAngle || steer)) {
+      steer *= clamp(peak / frontSlip, 0.3, 1);
+    }
+
     // Rate-limit the driver's hands: no human snaps from lock to lock in one
     // simulation step, and neither should this.
     const maxRate = lerp(2.2, 4.2, clamp(1 - speed / 70, 0, 1));
@@ -153,36 +170,37 @@ export class Driver {
   }
 
   /**
-   * The highest speed the car could hold through the tightest corner it can
-   * see, working back from that with a braking model.
+   * The speed the driver should be doing here.
+   *
+   * It comes from a whole-lap profile — cornering limit, then a backward
+   * braking pass that respects the friction circle and the grade — rather than
+   * a scan of the curvature ahead, because a scan cannot know that braking
+   * *into* a downhill corner leaves far less than the full braking figure.
+   * Looking a little way down the profile makes the driver brake before the
+   * error has grown, which is the difference between trail-braking and
+   * arriving at the apex sideways.
    */
   #speedTarget(s, speed) {
     const track = this.track;
-    const v = this.vehicle;
 
-    // Grip the driver is willing to use, in m/s². Well short of the 13-14 m/s²
-    // the car can actually produce: a driver that plans to use every last
-    // newton arrives at the apex with nothing left for mid-corner corrections.
-    const lateralG = lerp(7.6, 10.4, this.skill);
-    const brakingG = lerp(7.4, 10.2, this.skill);
-
-    let best = 130;
-    // Scan ahead as far as we could brake from the current speed.
-    const horizon = clamp(30 + (speed * speed) / (2 * brakingG), 40, 420);
-    const step = track.spacing * 2;
-
-    for (let d = 0; d < horizon; d += step) {
-      const i = track.indexAt(s + d);
-      const k = Math.abs(track.lineCurvature[i]);
-
-      // Downforce raises the cornering limit at speed.
-      const aero = 1 + clamp((speed - 40) / 90, 0, 1) * 0.5;
-      const corner = k > 1e-5 ? Math.sqrt((lateralG * aero) / k) : 140;
-
-      // Speed we may carry here so that we can still slow to `corner`.
-      const allowed = Math.sqrt(Math.max(0, corner * corner + 2 * brakingG * d));
-      best = Math.min(best, allowed);
+    if (!this.pacing || this.pacingWet !== track.wetness) {
+      // Grip the driver is willing to use, in m/s². Well short of the 13-14
+      // m/s² the car can actually produce: a driver that plans to use every
+      // last newton arrives at the apex with nothing left for corrections.
+      // The profile itself scales with what the weather leaves of the tarmac.
+      const lateralG = lerp(7.6, 10.4, this.skill);
+      const brakingG = lerp(7.4, 10.2, this.skill);
+      if (!this.pacing) {
+        this.pacing = new Pacing(track, { lateralG, brakingG, topSpeed: 140, forwardPass: false });
+      } else {
+        this.pacing.compute();
+      }
+      this.pacingWet = track.wetness;
     }
+
+    const here = this.pacing.speedAt(s);
+    const ahead = this.pacing.speedAt(s + Math.max(speed, 6) * 0.35);
+    let best = Math.min(here, ahead + 1.0);
 
     // Back off when running wide onto the marbles or off the circuit.
     const q = this.q;

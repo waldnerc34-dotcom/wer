@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 import { approach, clamp, lerp, sign } from '../core/MathUtils.js';
-import { SURFACE_DRAG, SURFACE_GRIP } from '../track/Track.js';
+import { SURFACE_DRAG } from '../track/Track.js';
 import { Tyre, TYRE_SPECS } from './TireModel.js';
 import { Drivetrain, V8_NA, V10_TT } from './Drivetrain.js';
 
@@ -129,6 +129,7 @@ export class Vehicle {
     };
     this.pedals = { throttle: 0, brake: 0 };
     this.reverseHold = 0;
+    this.dragScale = 1;
 
     this.telemetry = {
       speed: 0,
@@ -296,6 +297,10 @@ export class Vehicle {
     const shaftTorque = this.drivetrain.update(throttle, avgOmega, h, {
       speed: this.forwardSpeed,
       brake: c.brake,
+      // What the driven wheels *would* turn at if they were rolling: the
+      // gearbox must pick gears from the road speed, not from wheels that
+      // are locked or spinning.
+      roadOmega: this.forwardSpeed / driven[0].radius,
     });
 
     // A centre differential splits torque between the axles on all-wheel
@@ -434,7 +439,12 @@ export class Vehicle {
     const vLat = _v2.dot(_l);
 
     w.tyre.updateSlip(vLong, vLat, w.omega, h);
-    const grip = SURFACE_GRIP[w.surface] ?? 1;
+    // Surface and weather, then standing water: past ~130 km/h a soaked
+    // road starts to lift the tyre off the tarmac.
+    let grip = this.track.grip(w.surface);
+    if (this.track.wetness > 0.5 && w.surface === 0) {
+      grip *= 1 - clamp((this.speed - 36) / 45, 0, 1) * 0.18 * (this.track.wetness - 0.5) * 2;
+    }
     w.tyre.forces(Fz, grip);
 
     let Fx = w.tyre.Fx;
@@ -583,10 +593,19 @@ export class Vehicle {
    */
   #tractionControl(driven) {
     let worst = 0;
-    for (const w of driven) worst = Math.max(worst, w.tyre.kappa);
-    // Aim at the peak of the longitudinal curve. Authority up to a 95% cut:
-    // a system that can only take 18% off does nothing against 600 hp.
-    const cut = clamp((worst - 0.1) * 7, 0, 0.95);
+    let cornering = 0;
+    for (const w of driven) {
+      worst = Math.max(worst, w.tyre.kappa);
+      cornering = Math.max(cornering, Math.abs(w.tyre.alpha) / w.tyre.alphaPeak);
+    }
+    // Aim at the peak of the longitudinal curve — but the tyre has one
+    // budget, and a rear that is already leaning on its lateral peak has no
+    // longitudinal slip to spare. Lower the target as the corner takes its
+    // share, which is what stops a full-throttle exit becoming a power slide.
+    const target = 0.1 * lerp(1, 0.35, clamp(cornering - 0.5, 0, 1) / 0.6);
+    // Authority up to a 95% cut: a system that can only take 18% off does
+    // nothing against 600 hp.
+    const cut = clamp((worst - target) * 7, 0, 0.95);
     // Quick to cut, slower to give the torque back.
     this.tcCut = lerp(this.tcCut ?? 0, cut, cut > (this.tcCut ?? 0) ? 0.35 : 0.08);
     return 1 - this.tcCut;
@@ -600,8 +619,11 @@ export class Vehicle {
    */
   #stabilityControl() {
     const slip = Math.abs(this.telemetry.slipAngle);
-    if (slip < 0.1 || this.speed < 4) return 1;
-    return clamp(1 - (slip - 0.1) * 2.2, 0.45, 1);
+    if (slip < 0.09 || this.speed < 4) return 1;
+    // Proportional, so it never snatches: three quarters of the throttle
+    // left at 10° of slip, under half at 15°, and a fifth from 20° on —
+    // enough torque to keep the car driving, not enough to hold a slide.
+    return clamp(1 - (slip - 0.09) * 3.2, 0.2, 1);
   }
 
   /**
@@ -636,9 +658,11 @@ export class Vehicle {
 
     const qPressure = 0.5 * AIR_DENSITY * v * v;
 
-    // Drag opposes the velocity vector.
-    _f.copy(this.velocity).normalize().multiplyScalar(-qPressure * spec.dragArea);
+    // Drag opposes the velocity vector. `dragScale` drops in another car's
+    // slipstream, and so does the downforce — the wake is dirty air.
+    _f.copy(this.velocity).normalize().multiplyScalar(-qPressure * spec.dragArea * this.dragScale);
     forceAcc.add(_f);
+    const wake = lerp(0.82, 1, this.dragScale);
 
     // Downforce acts on the body's own up axis at the two axle lines, so it
     // both loads the tyres and trims the car's attitude.
@@ -647,7 +671,7 @@ export class Vehicle {
       [spec.downforceFront, spec.cogToFrontAxle],
       [spec.downforceRear, -spec.cogToRearAxle],
     ]) {
-      _f.copy(up).multiplyScalar(-qPressure * clA);
+      _f.copy(up).multiplyScalar(-qPressure * clA * wake);
       _r.set(0, 0, z).applyQuaternion(this.quaternion);
       this.#addForceAtPoint(forceAcc, torqueAcc, _f, _r);
     }

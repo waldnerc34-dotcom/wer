@@ -60,6 +60,9 @@ export function driveLap(
   // The planner decides where to aim and how fast; the hands turn that into
   // keys: any real demand becomes a key held all the way down.
   const planner = new Driver(vehicle, track, { skill: 0.8 });
+  // The driver adds a little random input noise for variety; a test wants
+  // the same lap every time.
+  planner.noisePhase = 0;
   const hands = new KeyboardHands();
   const q = {};
 

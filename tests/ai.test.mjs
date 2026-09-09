@@ -37,6 +37,7 @@ for (const circuit of CIRCUITS) {
   vehicle.assists.stability = false;
   vehicle.assists.steerLimiter = false;
   const driver = new Driver(vehicle, track, { skill: 0.92, name: 'Test' });
+  driver.noisePhase = 0; // deterministic lap
   const timer = new LapTimer(track);
 
   let maxSpeed = 0;

@@ -29,12 +29,21 @@ page.on('requestfailed', r => logs.push(`[fail] ${r.url().slice(-70)}`));
 await page.goto(URL, { waitUntil: 'load', timeout: 60000 });
 await page.waitForTimeout(1000);
 await page.screenshot({ path: `${P}/01-menu.png` });
-// Optional: CAR=concept picks the second car; MODE=race exercises the AI field.
+// Optional: CAR=concept picks the second car; MODE=race exercises the AI
+// field; WEATHER=rain|storm|fog|night|overcast; CIRCUIT=<part of the name>.
 if (process.env.CAR === 'concept') {
   await page.getByRole('button', { name: /Khronos/ }).click();
 }
 if (process.env.MODE === 'race') {
   await page.getByRole('button', { name: /Race/ }).click();
+}
+if (process.env.WEATHER) {
+  const re = new RegExp(`^${process.env.WEATHER}`, 'i');
+  await page.locator('[data-field="weather"] .choice').filter({ hasText: re }).first().click();
+}
+if (process.env.CIRCUIT) {
+  const re = new RegExp(process.env.CIRCUIT, 'i');
+  await page.locator('[data-field="circuit"] .choice').filter({ hasText: re }).first().click();
 }
 await page.locator('[data-start]').click();
 await page.waitForSelector('#hud:not(.hidden)', { timeout: 240000 });
@@ -62,6 +71,32 @@ for (const [name, off, look] of views) {
   await page.screenshot({ path: `${P}/${name}.png` });
 }
 await page.evaluate(() => { window.APEX.game.paused = false; });
+
+// Drive: hold the throttle for a few seconds and shoot the chase view, which
+// is where the pacing arrows, spray and rain are actually seen.
+// Headless Chromium's frame clock can stand still, so step the simulation
+// by hand: a fixed 60 Hz delta, one game frame per iteration.
+const drive = async (seconds) => page.evaluate((secs) => {
+  const g = window.APEX.game;
+  g.clock.getDelta = () => 1 / 60;
+  for (let i = 0; i < Math.round(secs * 60); i++) g.frame();
+}, seconds);
+await page.keyboard.down('KeyW');
+await drive(6);
+await page.screenshot({ path: `${P}/06-driving.png` });
+await page.keyboard.up('KeyW');
+await page.keyboard.down('KeyS');
+await drive(1.2);
+await page.screenshot({ path: `${P}/07-braking.png` });
+await page.keyboard.up('KeyS');
+const driven = await page.evaluate(() => {
+  const g = window.APEX.game; const s = g.state();
+  return { speedKph: Math.round(s.speedKph), weather: s.weather, wet: s.wet, pace: s.pace,
+    paceSpeedKph: Math.round(s.paceSpeedKph), arrows: g.racingLine?.mesh.count, arrowsVisible: g.racingLine?.visible,
+    rainVisible: g.rain?.mesh.visible, headlights: s.headlights, wetUniform: g.materials.wetUniform.value,
+    fps: Math.round(s.fps) };
+});
+console.log('driving:', JSON.stringify(driven));
 
 // HUD geometry check
 const hud = await page.evaluate(() => {

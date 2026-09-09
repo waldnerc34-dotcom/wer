@@ -129,6 +129,19 @@ html, body {
   text-transform: uppercase;
 }
 
+/* The pacing arrows' instruction, spelled out. */
+.pace {
+  font-size: 12px;
+  letter-spacing: 0.26em;
+  font-weight: 700;
+  min-height: 16px;
+  margin-bottom: 4px;
+  transition: color 0.15s;
+}
+.pace.p0 { color: #5ef08a; }
+.pace.p1 { color: #f4d43a; }
+.pace.p2 { color: #ff5a4a; text-shadow: 0 0 18px rgba(255, 90, 74, 0.55); }
+
 .warn {
   font-size: 12px;
   letter-spacing: 0.2em;

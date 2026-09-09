@@ -11,6 +11,8 @@ import * as THREE from 'three';
 export class Materials {
   constructor() {
     this.all = [];
+    // 0 dry … 1 soaked; shared by every surface shader that reacts to rain.
+    this.wetUniform = { value: 0 };
   }
 
   async load(assets) {
@@ -52,6 +54,7 @@ export class Materials {
 
     this.smoke = await T('textures/smoke.webp', { srgb: true });
     this.skid = await T('textures/skid.webp', { srgb: true });
+    this.spark = await T('textures/spark.webp', { srgb: true });
 
     /* ------------------------------------------------------------- road -- */
 
@@ -68,7 +71,7 @@ export class Materials {
       envMapIntensity: 0.55,
       dithering: true,
     });
-    patchWear(this.road);
+    patchWear(this.road, this.wetUniform);
 
     this.kerb = new THREE.MeshStandardMaterial({
       map: kerbMap,
@@ -242,15 +245,19 @@ export class Materials {
 }
 
 /**
- * Folds the `aWear` / `aDust` vertex attributes into a standard material.
+ * Folds the `aWear` / `aDust` vertex attributes into a standard material,
+ * and lets the weather soak it.
  *
  * Rubber laid into the racing line darkens the surface and polishes it; the
  * dust and marbles that collect off-line lighten it and kill the gloss. Both
  * are baked per-vertex by the track builder, so this costs nothing at runtime
- * beyond two extra varyings.
+ * beyond two extra varyings. Wet tarmac is darker, and standing water
+ * collects in the low spots of the roughness map — those go mirror-smooth
+ * while the crown of the road stays merely damp.
  */
-function patchWear(material) {
+function patchWear(material, wet = { value: 0 }) {
   material.onBeforeCompile = (shader) => {
+    shader.uniforms.uWet = wet;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -271,6 +278,7 @@ function patchWear(material) {
       .replace(
         '#include <common>',
         `#include <common>
+        uniform float uWet;
         varying float vWear;
         varying float vDust;`,
       )
@@ -280,13 +288,19 @@ function patchWear(material) {
         // Rubbered-in racing line: darker and slightly blue-black.
         diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 0.44, 0.45, 0.48 ), vWear );
         // Marbles and dust off-line: lighter, warmer, dead matte.
-        diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.65, 1.55, 1.35 ), vDust );`,
+        diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.65, 1.55, 1.35 ), vDust );
+        // Soaked tarmac: water fills the pores, so far less light scatters back.
+        diffuseColor.rgb *= mix( 1.0, 0.58, uWet );`,
       )
       .replace(
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
         roughnessFactor = mix( roughnessFactor, roughnessFactor * 0.68, vWear );
-        roughnessFactor = min( 1.0, mix( roughnessFactor, roughnessFactor * 1.12, vDust ) );`,
+        roughnessFactor = min( 1.0, mix( roughnessFactor, roughnessFactor * 1.12, vDust ) );
+        // Rain: the whole surface goes glossy, and the low spots of the
+        // roughness map — where water stands — become mirrors.
+        float puddle = smoothstep( 0.42, 0.18, roughnessFactor );
+        roughnessFactor = mix( roughnessFactor, 0.08, uWet * ( 0.45 + 0.55 * puddle ) );`,
       );
   };
   material.customProgramCacheKey = () => 'wear';

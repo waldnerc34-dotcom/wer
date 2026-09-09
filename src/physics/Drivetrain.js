@@ -66,9 +66,10 @@ export class Drivetrain {
    * @param {number} dt          timestep, s
    * @returns {number} torque delivered to the differential input, Nm
    */
-  update(throttle, wheelOmega, dt, { speed = 0, brake = 0 } = {}) {
+  update(throttle, wheelOmega, dt, { speed = 0, brake = 0, roadOmega = wheelOmega } = {}) {
     const spec = this.spec;
     this.shiftTimer = Math.max(0, this.shiftTimer - dt);
+    this.roadOmega = roadOmega;
 
     const idleOmega = (spec.idleRpm * Math.PI * 2) / 60;
     const limiterOmega = (spec.limiterRpm * Math.PI * 2) / 60;
@@ -129,7 +130,7 @@ export class Drivetrain {
     }
     this.limiterCut = Math.max(0, this.limiterCut - dt);
 
-    if (this.autoShift) this.#autoShift(throttle, speed, brake);
+    if (this.autoShift) this.#autoShift(throttle, speed, brake, roadOmega);
 
     if (this.gear === 0 || this.shiftTimer > 0) {
       this.torqueSlope = 0;
@@ -145,9 +146,16 @@ export class Drivetrain {
     return this.clutchTorque * this.ratio * spec.drivelineEfficiency;
   }
 
-  #autoShift(throttle, speed, brake) {
+  #autoShift(throttle, speed, brake, roadOmega = 0) {
     if (this.shiftTimer > 0) return;
     const spec = this.spec;
+
+    // Engine speed the road would impose in a given gear. Under hard braking
+    // the driven wheels run well below road speed (and under power well
+    // above it), and a box that read the engine at those moments would drop
+    // to first at 90 km/h — then hurl the rears into a slide when the
+    // rev-match caught up. Real automatics choose gears from road speed.
+    const roadRpm = (ratio) => (Math.abs(roadOmega) * ratio * 60) / (Math.PI * 2);
 
     // Pull away — but never override a reverse the driver asked for, or a
     // car trying to back out of a gravel trap would be shifted into first on
@@ -157,19 +165,28 @@ export class Drivetrain {
       return;
     }
 
+    // Upshift on engine speed under power — that is when it matters — but
+    // never while the wheels are spinning up faster than the road: a car
+    // lighting its rears in first would otherwise be shifted into second
+    // mid-slide, and the road-speed check below would drop it straight back.
     const upAt = lerp(spec.upshiftRpm * 0.82, spec.upshiftRpm, clamp(throttle * 1.3, 0, 1));
     if (this.gear > 0 && this.gear < this.topGear && this.rpm > upAt) {
-      this.shiftTo(this.gear + 1);
-      return;
+      const inThisGear = roadRpm(this.ratio);
+      if (inThisGear > upAt * 0.8) {
+        this.shiftTo(this.gear + 1);
+        return;
+      }
     }
 
     // Downshift when the next gear down would not over-rev, biased earlier
-    // under braking so the car is in the right gear at corner entry.
+    // under braking so the car is in the right gear at corner entry. Judged
+    // from road speed, so a locked or spinning wheel cannot fool it.
     if (this.gear > 1) {
       const nextRatio = spec.gearRatios[this.gear - 2] * spec.finalDrive;
-      const projected = this.rpm * (nextRatio / this.ratio);
+      const current = roadRpm(this.ratio);
+      const projected = roadRpm(nextRatio);
       const threshold = spec.downshiftRpm * (brake > 0.15 ? 1.06 : 1);
-      if (this.rpm < threshold && projected < spec.limiterRpm * 0.93) {
+      if (current < threshold && projected < spec.limiterRpm * 0.9) {
         this.shiftTo(this.gear - 1);
       }
     }

@@ -5,7 +5,9 @@ A physically-based 3D racing simulator that runs in the browser.
 Real downloaded supercar models, captured HDRI lighting, a Pacejka tyre model
 with load sensitivity and thermal behaviour, raycast suspension with anti-roll
 bars, a limited-slip differential, and aerodynamics that actually change how
-the car behaves at 300 km/h.
+the car behaves at 300 km/h. Five circuits, six weathers — from a clear
+evening to a storm with standing water — and coloured pacing arrows on the
+road that tell you where to brake.
 
 **Play it:** https://waldnerc34-dotcom.github.io/wer/ — on a phone (turn it
 sideways), a tablet or a desktop browser. Every push to this branch builds the
@@ -86,7 +88,22 @@ Phones get their own render path rather than a scaled-down desktop one:
 | `Esc` / `P` | Pause, driver aids, restart |
 
 A gamepad is picked up automatically (standard mapping: triggers for the
-pedals, left stick to steer, bumpers to shift).
+pedals, left stick to steer, bumpers to shift). The pause menu toggles ABS,
+traction control, stability control, the automatic gearbox, inverted steering
+and the **pacing arrows**.
+
+### Pacing arrows
+
+Chevrons are laid along the racing line for the whole lap, coloured by what
+you should be doing there: **green** — accelerate, **yellow** — ease off and
+hold your speed, **red** — brake. They come from an ideal speed profile
+(`src/track/Pacing.js`): the cornering limit from the line's curvature and
+camber, a backward pass that pulls speed down ahead of every corner at
+whatever braking the friction circle and the grade leave, and a forward pass
+that lets it climb out at what the engine and traction can give. The profile
+is rebuilt when the weather changes the grip, so in the rain the red zones get
+longer and start earlier. The HUD spells the same instruction out under the
+corner name.
 
 ---
 
@@ -109,6 +126,21 @@ out of the same loop.
 - **Temperature**: grip peaks in a working window. Abuse the tyres through a
   long corner and the outside front goes off — you can watch it happen on the
   HUD.
+
+**Weather and the road** — `src/track/Track.js`, `src/game/Weather.js`
+
+- Every surface has a dry grip figure and a wet one, blended by how soaked the
+  track is. Tarmac loses about a quarter of its grip in the rain; painted
+  kerbs lose half.
+- **Aquaplaning**: on a soaked road, above ~130 km/h, the tyre starts to ride
+  on the water film and grip falls further with speed.
+- Kerbs are raised, with a 0.6 m ridge profile — at 150 km/h that buzzes
+  through the suspension at about 70 Hz, which is what a kerb sounds like.
+- **Slipstream**: a car tucked in behind another pays up to 30% less drag and
+  loses some of its downforce with it, which is what makes the tow worth
+  having on the straight and a liability into the braking zone.
+- Tyres cool toward the ambient temperature the weather sets, so a wet track
+  is also a cold one.
 
 **Suspension** — `src/physics/Vehicle.js`
 
@@ -136,7 +168,8 @@ The simulation runs at a fixed 240 Hz, sub-stepped from the render frame.
 
 ### Measured behaviour
 
-`npm test` runs three headless suites — no renderer, so they work in CI.
+`npm test` runs seven headless suites — no renderer, so they work in CI:
+physics, AI, effects, controls, camera, pacing and handling.
 
 `tests/physics.test.mjs` drives both cars on a synthetic proving ground — 4 km
 straights and a 120 m skidpad — and reports:
@@ -150,8 +183,8 @@ straights and a 120 m skidpad — and reports:
   skidpad peak 1.36 g lateral @ 148 km/h (120 m radius)
 ```
 
-`tests/ai.test.mjs` sends an AI driver round both circuits for two laps and
-asserts it completes them, stays inside track limits, never gets stuck and
+`tests/ai.test.mjs` sends an AI driver round all five circuits for two laps
+and asserts it completes them, stays inside track limits, never gets stuck and
 posts consistent times:
 
 ```
@@ -167,6 +200,14 @@ non-finite ever reaches the instance buffers. That is not a cosmetic concern: a
 single NaN in the instance colour buffer reaches the HDR render target, bloom
 spreads it across the mip chain, and the whole frame renders black — which is
 exactly what used to happen the first time the tyres smoked.
+
+`tests/pacing.test.mjs` checks the speed profile behind the arrows — the
+hairpin is slow, the back straight is fast, the arrows say brake before the
+hairpin and accelerate well before it, and the braking zone lengthens in the
+wet. `tests/handling.test.mjs` drives every circuit the way a person on a
+keyboard does — full lock, full pedal — with the driver aids on, and asserts
+the car never spins and rarely gets sideways; it is the test the aids are
+tuned against.
 
 Static corner loads sum to the car's weight at the authored 42% front bias,
 top speed and braking distance land where a real 458 does, and lateral grip
@@ -184,11 +225,16 @@ Three parts:
 - **Steering** is pure pursuit against a point on the racing line, roughly half
   a second of travel ahead, plus counter-steer proportional to the car's own
   slip angle so it catches slides instead of spinning.
-- **Speed** comes from scanning the racing line's curvature as far ahead as the
-  car could brake from its current speed, taking the lowest limit it finds and
-  working backwards. The grip budget it plans against is deliberately short of
-  what the car can actually produce — a driver who plans to use every last
-  newton arrives at the apex with nothing left for corrections.
+- **Speed** comes from the same whole-lap profile that paints the arrows,
+  built for the grip this driver is willing to use: the cornering limit, then
+  a backward braking pass that respects the friction circle — braking *into* a
+  corner leaves far less than the full braking figure — and the grade of the
+  road. It reads the profile a third of a second ahead so it brakes before the
+  error has grown, which is the difference between trail-braking and arriving
+  at the apex sideways. The grip budget is deliberately short of what the car
+  can actually produce — a driver who plans to use every last newton arrives
+  at the apex with nothing left for corrections. When the fronts pass their
+  peak slip angle it unwinds the wheel rather than winding on more.
 - **Avoidance** offsets the line when it finds a car alongside, and a recovery
   behaviour backs out of gravel, with a rejoin as a last resort so the field
   always keeps circulating.
@@ -231,8 +277,37 @@ surface and polishes it) and `aDust` (the marbles that collect off-line, which
 lighten it and kill the gloss). Both are baked at build time and folded in with
 a small shader patch, so they cost two varyings at runtime.
 
-**Apex International** — 4.4 km, 15 m of elevation change, 11 corners.
-**Costa Brava Sprint** — 2.4 km, faster and more flowing.
+Five circuits:
+
+- **Apex International** — 4.4 km, 15 m of elevation change, 11 corners.
+- **Costa Brava Sprint** — 2.4 km, faster and more flowing.
+- **Silverton Grand Prix** — 3.9 km of wide, fast, modern circuit: long
+  straights into big stops and a flat-out sweeper sequence.
+- **Col de l'Aigle** — 3.7 km of narrow mountain road: three hairpins on the
+  climb, two of them off-camber, then a fast descent with a downhill braking
+  zone that punishes trail-braking.
+- **Delta Speedbowl** — 3.2 km, two banked ovals joined by an infield.
+
+---
+
+## Weather
+
+Six presets on the start screen: clear, overcast, rain, storm, fog and night.
+One captured HDRI serves all six for a circuit — `src/game/Weather.js`
+reworks the panorama on the CPU (exposure, desaturation, tint, and flattening
+the sun disc toward the sky's mean, which is what an overcast sky is) and
+prefilters the result for the lighting, so the single-file build does not
+carry six skies. Each preset also sets the sun, the hemisphere light, the fog,
+the wind in the trees, the ambient temperature the tyres cool toward, and how
+wet the track is.
+
+Rain is a field of streaks that lives around the camera: a few thousand quads
+with fixed offsets in a box, wrapped around the camera and slid down it in the
+vertex shader, so it costs one draw call and no per-frame CPU. Wet tarmac is
+darker, the whole surface goes glossy, and the low spots of the roughness map
+— where water stands — become mirrors. Tyres throw spray instead of smoke and
+leave far less rubber, headlights come on, and the engine audio gains a rain
+bed and a storm rumble. Cars shower sparks when they hit the barriers.
 
 ---
 
@@ -287,7 +362,7 @@ src/
   game/       session orchestration, AI drivers, camera, lap timing
   ui/         HUD and menus
 scripts/      pinned asset manifest, fetcher, texture authoring, compression
-tests/        physics, AI and effects validation harnesses
+tests/        physics, AI, effects, controls, camera, pacing and handling harnesses
 tools/        browser screenshot / emulated-phone checks
 ```
 

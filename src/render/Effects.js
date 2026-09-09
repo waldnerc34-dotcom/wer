@@ -13,16 +13,24 @@ const _v2 = new THREE.Vector3();
  * and its cost is constant regardless of how hard the car is being driven.
  */
 export class ParticleSystem {
-  constructor(texture, { count = 600 } = {}) {
+  /**
+   * @param {THREE.Texture} texture
+   * @param {object} opts   count; additive (sparks, glows); lift — vertical
+   *                        acceleration, positive for smoke that rises,
+   *                        negative for things that fall; drag per second
+   */
+  constructor(texture, { count = 600, additive = false, lift = 0.62, drag = 2.1 } = {}) {
     this.count = count;
+    this.lift = lift;
+    this.drag = drag;
     this.geometry = new THREE.PlaneGeometry(1, 1);
 
     this.material = new THREE.MeshBasicMaterial({
       map: texture,
       transparent: true,
       depthWrite: false,
-      blending: THREE.NormalBlending,
-      toneMapped: true,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+      toneMapped: !additive,
       side: THREE.DoubleSide,
     });
 
@@ -104,11 +112,11 @@ export class ParticleSystem {
       // frame and the screen goes black.
       const t = clamp(1 - this.life[i] / this.maxLife[i], 0, 1); // 0 new … 1 gone
 
-      // Smoke slows, rises and spreads as it dissipates.
-      const dragK = Math.exp(-2.1 * dt);
+      // Smoke slows, rises and spreads as it dissipates; sparks fall.
+      const dragK = Math.exp(-this.drag * dt);
       this.velocity[i * 3] *= dragK;
       this.velocity[i * 3 + 2] *= dragK;
-      this.velocity[i * 3 + 1] = this.velocity[i * 3 + 1] * dragK + 0.62 * dt;
+      this.velocity[i * 3 + 1] = this.velocity[i * 3 + 1] * dragK + this.lift * dt;
 
       this.position[i * 3] += this.velocity[i * 3] * dt;
       this.position[i * 3 + 1] += this.velocity[i * 3 + 1] * dt;
@@ -283,13 +291,55 @@ const SURFACE_PARTICLE = [
 export class TyreEffects {
   constructor(scene, materials, { skidSegments = 900, particles = 700 } = {}) {
     this.smoke = new ParticleSystem(materials.smoke, { count: particles });
+    // Sparks: additive, small, and they fall — hot metal has weight.
+    this.sparks = new ParticleSystem(materials.spark ?? materials.smoke, {
+      count: Math.max(60, Math.round(particles * 0.35)),
+      additive: true,
+      lift: -9.8,
+      drag: 0.9,
+    });
     this.marks = Array.from({ length: 4 }, () => new SkidMarks(materials.skid, { segments: skidSegments }));
 
     scene.add(this.smoke.mesh);
+    scene.add(this.sparks.mesh);
     for (const m of this.marks) scene.add(m.mesh);
 
     this.emitAccumulator = [0, 0, 0, 0];
+    this.sprayAccumulator = [0, 0, 0, 0];
     this.smokeLevel = 0;
+  }
+
+  /** Every mesh this owns, so the scene can drop them on teardown. */
+  get meshes() {
+    return [this.smoke.mesh, this.sparks.mesh, ...this.marks.map((m) => m.mesh)];
+  }
+
+  /**
+   * A shower of sparks where the car has just hit something.
+   *
+   * @param {import('../physics/Vehicle.js').Vehicle} vehicle
+   * @param {number} strength 0..1
+   */
+  impact(vehicle, strength) {
+    const n = Math.round(lerp(6, 34, clamp(strength, 0, 1)));
+    // Off the side of the car that is closest to the barrier, low down.
+    const side = vehicle.telemetry.slipAngle >= 0 ? -1 : 1;
+    _v2.set(side * 0.95, -0.25, 0).applyQuaternion(vehicle.quaternion);
+    _v2.add(vehicle.position);
+    for (let i = 0; i < n; i++) {
+      _v.copy(vehicle.velocity).multiplyScalar(0.55);
+      _v.x += (Math.random() - 0.5) * 6;
+      _v.y += Math.random() * 3.5;
+      _v.z += (Math.random() - 0.5) * 6;
+      this.sparks.emit(_v2, {
+        velocity: _v,
+        life: 0.35 + Math.random() * 0.5,
+        size: 0.05 + Math.random() * 0.06,
+        growth: 0,
+        color: [2.6, 1.5 + Math.random() * 0.6, 0.35],
+        spread: 0.5,
+      });
+    }
   }
 
   /**
@@ -297,6 +347,7 @@ export class TyreEffects {
    */
   update(vehicle, dt, camera) {
     let peak = 0;
+    const wet = vehicle.track?.wetness ?? 0;
 
     for (let i = 0; i < 4; i++) {
       const w = vehicle.wheels[i];
@@ -306,11 +357,33 @@ export class TyreEffects {
         continue;
       }
 
-      // How hard the tyre is working past its peak.
+      // How hard the tyre is working past its peak. Tyres do not smoke on a
+      // wet road — the water takes the heat — and they leave far less rubber.
       const slide = clamp((w.slipSpeed - 2.4) / 12, 0, 1);
       const heat = clamp((w.tyre.temp - 95) / 90, 0, 1);
-      const intensity = clamp(slide * (0.6 + heat * 0.7), 0, 1);
+      const intensity = clamp(slide * (0.6 + heat * 0.7), 0, 1) * (1 - wet * 0.85);
       peak = Math.max(peak, intensity);
+
+      /* -- spray ---------------------------------------------------------- */
+      // A rooster tail off each tyre on a wet road: fine, pale, short-lived,
+      // and thrown back along the car's wake.
+      if (wet > 0.25 && w.surface <= 2 && vehicle.speed > 9) {
+        const rate = clamp((vehicle.speed - 9) / 45, 0, 1) * wet * (w.axle === 'rear' ? 34 : 22);
+        this.sprayAccumulator[i] += rate * dt;
+        while (this.sprayAccumulator[i] >= 1) {
+          this.sprayAccumulator[i] -= 1;
+          _v.copy(vehicle.velocity).multiplyScalar(-0.28);
+          _v.y += 1.6 + vehicle.speed * 0.02;
+          this.smoke.emit(w.contact, {
+            velocity: _v,
+            life: 0.55 + wet * 0.35,
+            size: 0.28,
+            growth: 4.2,
+            color: [0.74, 0.78, 0.84],
+            spread: 0.28,
+          });
+        }
+      }
 
       // Lateral direction of the contact patch, for the mark's width.
       _v2.set(1, 0, 0).applyQuaternion(vehicle.quaternion);
@@ -361,6 +434,7 @@ export class TyreEffects {
 
     this.smokeLevel = peak;
     this.smoke.update(dt, camera);
+    this.sparks.update(dt, camera);
   }
 
   clear() {

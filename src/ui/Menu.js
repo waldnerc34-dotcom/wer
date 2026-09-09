@@ -1,5 +1,6 @@
 import { CIRCUITS } from '../track/Layout.js';
 import { CARS } from '../physics/Vehicle.js';
+import { WEATHERS } from '../game/Weather.js';
 import { QUALITY } from '../render/Renderer.js';
 import { formatLap } from '../game/Timing.js';
 
@@ -19,6 +20,7 @@ export class Menu {
       // Three AI cars is plenty for a phone's CPU; five on a desktop.
       opponents: touch ? 3 : 5,
       steering: 'touch',
+      weather: 'clear',
     };
   }
 
@@ -43,6 +45,7 @@ export class Menu {
       </p>
       <div class="field" data-field="car"><label>CAR</label><div class="choices"></div></div>
       <div class="field" data-field="circuit"><label>CIRCUIT</label><div class="choices"></div></div>
+      <div class="field" data-field="weather"><label>WEATHER</label><div class="choices"></div></div>
       <div class="field" data-field="mode"><label>SESSION</label><div class="choices"></div></div>
       <div class="field" data-field="quality"><label>GRAPHICS</label><div class="choices"></div></div>
       <div class="field" data-field="steering" hidden><label>STEERING</label><div class="choices"></div></div>
@@ -74,6 +77,12 @@ export class Menu {
       label: c.name,
       note: c.country,
     })), (v) => (this.selection.circuitId = v), this.selection.circuitId);
+
+    this.#choices(card, 'weather', WEATHERS.map((w) => ({
+      id: w.id,
+      label: w.label,
+      note: w.note,
+    })), (v) => (this.selection.weather = v), this.selection.weather);
 
     this.#choices(card, 'mode', [
       { id: 'time-trial', label: 'Time trial', note: 'Empty circuit, chase the clock' },
@@ -153,6 +162,7 @@ export class Menu {
       <h1 class="wordmark" style="font-size:38px">Paused</h1>
       <p class="tagline">${state.carName} · ${state.trackName}</p>
       <div class="field" data-field="assists"><label>DRIVER AIDS</label><div class="choices"></div></div>
+      <p class="loading-note" style="margin:-6px 0 14px">Arrows on the road: <b style="color:#5ef08a">green</b> accelerate · <b style="color:#f4d43a">yellow</b> ease off · <b style="color:#ff5a4a">red</b> brake</p>
       <div class="actions">
         <button class="btn" data-resume>Resume</button>
         <button class="btn ghost" data-restart>Restart session</button>
@@ -166,6 +176,7 @@ export class Menu {
       ['stability', 'Stability control'],
       ['autoShift', 'Automatic gearbox'],
       ['invertSteer', 'Invert steering'],
+      ['racingLine', 'Pacing arrows'],
     ];
     for (const [key, label] of toggles) {
       const b = el('button', 'choice');

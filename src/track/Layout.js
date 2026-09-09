@@ -262,6 +262,104 @@ export const COASTAL_SPRINT = {
   ],
 };
 
-export const CIRCUITS = [APEX_INTERNATIONAL, COASTAL_SPRINT];
+/**
+ * COL DE L'AIGLE — a mountain road turned circuit: 3.7 km, 60 m of climb and
+ * descent, hairpins stacked up the hillside, narrow and unforgiving.
+ */
+export const COL_DE_L_AIGLE = {
+  id: 'aigle',
+  name: "Col de l'Aigle",
+  country: 'Mountain Circuit',
+  hdri: 'spruit_sunrise_1k.hdr',
+  sunAzimuth: 74,
+  sunElevation: 19,
+  segments: [
+    straight(280, { width: 11, rise: 6, name: 'Start / Finish' }),
+    arc(38, -150, { width: 11, bank: 3, rise: 4, name: 'T1 — Lacet 1' }),
+    straight(170, { width: 11, rise: 9 }),
+    arc(30, 160, { width: 11, bank: 4, rise: 4, name: 'T2 — Lacet 2' }),
+    straight(210, { width: 11, rise: 11 }),
+    arc(120, -58, { width: 11, bank: -3, rise: 5, name: 'T3 — Balcon' }),
+    straight(140, { width: 11, rise: 7 }),
+    arc(32, -155, { width: 11, bank: 3, rise: 3, name: 'T4 — Lacet 3' }),
+    straight(260, { width: 12, rise: 8 }),
+    arc(90, 70, { width: 12, bank: 3, rise: 3, name: 'T5 — Col' }),
+    straight(150, { width: 12, rise: -4 }),
+    arc(150, 62, { width: 12, bank: 5, rise: -8, name: 'T6 — Descente' }),
+    straight(330, { width: 12, rise: -16 }),
+    arc(70, -84, { width: 11, bank: -2, rise: -6, name: 'T7 — Ravin' }),
+    straight(120, { width: 11, rise: -7 }),
+    arc(44, 118, { width: 11, bank: 3, rise: -5, name: 'T8 — Épingle' }),
+    straight(240, { width: 11, rise: -10 }),
+    arc(110, 55, { width: 11, bank: 4, rise: -4, name: 'T9 — Forêt' }),
+    straight(200, { width: 11, rise: -6 }),
+    arc(80, -66, { width: 11, bank: -3, rise: -4, name: 'T10 — Retour' }),
+    straight(160, { width: 11, rise: 0 }),
+  ],
+};
+
+/**
+ * SILVERTON GRAND PRIX — 3.9 km of wide, fast, modern circuit: long straights
+ * into big stops, a flat-out sweeper sequence, and a slow final complex.
+ */
+export const SILVERTON_GP = {
+  id: 'silverton',
+  name: 'Silverton Grand Prix',
+  country: 'Grand Prix Circuit',
+  hdri: 'blouberg_sunrise_2_1k.hdr',
+  sunAzimuth: 150,
+  sunElevation: 32,
+  segments: [
+    straight(820, { width: 16, name: 'Start / Finish' }),
+    arc(64, 96, { width: 16, bank: 4, name: 'T1 — Village' }),
+    straight(210, { width: 15 }),
+    arc(230, -48, { width: 15, bank: -5, name: 'T2 — Farm' }),
+    arc(320, 36, { width: 15, bank: 6, name: 'T3 — Becketts' }),
+    arc(210, -52, { width: 15, bank: -5, name: 'T4' }),
+    arc(260, 44, { width: 15, bank: 5, name: 'T5 — Chapel' }),
+    straight(640, { width: 16, rise: 3, name: 'Hangar Straight' }),
+    arc(150, 88, { width: 16, bank: 7, name: 'T6 — Stowe' }),
+    straight(260, { width: 15, rise: -3 }),
+    arc(42, -112, { width: 15, bank: 3, name: 'T7 — Vale' }),
+    straight(130, { width: 15 }),
+    arc(90, 84, { width: 15, bank: 4, name: 'T8 — Club' }),
+    straight(300, { width: 16 }),
+    arc(180, 60, { width: 16, bank: 6, name: 'T9 — Abbey' }),
+    straight(210, { width: 15, rise: 2 }),
+    arc(56, -98, { width: 15, bank: -3, name: 'T10 — Luffield' }),
+    straight(120, { width: 15 }),
+    arc(75, 72, { width: 15, bank: 4, name: 'T11 — Woodcote' }),
+    straight(90, { width: 16 }),
+  ],
+};
+
+/**
+ * DELTA SPEEDBOWL — a 3.1 km banked tri-oval with one chicane: 300 km/h on
+ * the banking, then a stop from the fastest point on the circuit.
+ */
+export const DELTA_SPEEDBOWL = {
+  id: 'speedbowl',
+  name: 'Delta Speedbowl',
+  country: 'Superspeedway',
+  hdri: 'pedestrian_overpass_1k.hdr',
+  sunAzimuth: 200,
+  sunElevation: 46,
+  segments: [
+    straight(560, { width: 18, name: 'Tri-oval' }),
+    arc(240, 96, { width: 18, bank: 18, name: 'T1 — Banking' }),
+    straight(120, { width: 18 }),
+    arc(240, 84, { width: 18, bank: 18, name: 'T2 — Banking' }),
+    straight(420, { width: 18, name: 'Back Straight' }),
+    arc(70, -48, { width: 16, bank: 2, name: 'T3 — Chicane' }),
+    arc(70, 48, { width: 16, bank: 2, name: 'T4 — Chicane' }),
+    straight(220, { width: 18 }),
+    arc(240, 90, { width: 18, bank: 18, name: 'T5 — Banking' }),
+    straight(120, { width: 18 }),
+    arc(240, 90, { width: 18, bank: 18, name: 'T6 — Banking' }),
+    straight(140, { width: 18 }),
+  ],
+};
+
+export const CIRCUITS = [APEX_INTERNATIONAL, COASTAL_SPRINT, SILVERTON_GP, COL_DE_L_AIGLE, DELTA_SPEEDBOWL];
 
 export { lerp };

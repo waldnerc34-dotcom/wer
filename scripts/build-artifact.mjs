@@ -54,7 +54,7 @@ const TEXTURES = [
   'concrete_basecolor', 'concrete_normal', 'concrete_roughness',
   'grass_basecolor', 'grass_normal',
   'gravel_basecolor', 'gravel_normal', 'gravel_metalrough',
-  'flake_normal', 'smoke', 'skid', 'tree_canopy',
+  'flake_normal', 'smoke', 'skid', 'spark', 'tree_canopy',
 ].map((n) => `textures/${n}.webp`);
 
 // One sky for both circuits; the loader falls back to it when a circuit asks

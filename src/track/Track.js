@@ -16,6 +16,9 @@ export const SURFACE = {
 
 /** Peak friction multiplier for each surface, relative to dry asphalt. */
 export const SURFACE_GRIP = [1.0, 0.92, 0.95, 0.55, 0.42];
+/** Grip in the wet, relative to the same surface dry. Painted kerbs and
+ *  grass lose far more than tarmac; gravel hardly changes. */
+export const SURFACE_WET = [0.74, 0.5, 0.72, 0.9, 0.55];
 /** Extra rolling resistance (N per kN of load) once off the racing surface. */
 export const SURFACE_DRAG = [0, 0.004, 0.002, 0.09, 0.045];
 /** How rough each surface feels through the chassis. */
@@ -40,6 +43,26 @@ export class Track {
     this.#computeCurvature();
     this.#computeRacingLine();
     this.#buildSpatialHash();
+
+    // Set by the weather: 0 dry … 1 soaked. Read by the tyres, the AI's
+    // planner and the pacing arrows.
+    this.wetness = 0;
+  }
+
+  /** Grip multiplier for a surface under the current weather. */
+  grip(surface) {
+    const dry = SURFACE_GRIP[surface] ?? 1;
+    const wet = SURFACE_WET[surface] ?? 0.7;
+    return dry * lerp(1, wet, this.wetness);
+  }
+
+  /**
+   * Kerb profile, metres above the road plane: a raised lip with the ridges
+   * that make a kerb rumble through the suspension. Period 0.6 m, so at
+   * 150 km/h it buzzes at ~70 Hz, which is about right.
+   */
+  kerbHeight(s) {
+    return 0.035 + 0.022 * Math.sin((s / 0.6) * Math.PI * 2);
   }
 
   /* ------------------------------------------------------------- sampling */
@@ -334,6 +357,11 @@ export class Track {
     out.curvature = lerp(this.curvature[i0], this.curvature[iN], blend);
     out.centreHeight = cy;
     out.height = cy - lateral * Math.tan(bank);
+    const edge = width * 0.5;
+    const absLat = Math.abs(lateral);
+    if (absLat > edge && absLat <= edge + this.kerbWidth(out.curvature ?? 0)) {
+      out.height += this.kerbHeight(out.s ?? 0);
+    }
     out.nx = lerp(this.normal[i0 * 3], this.normal[iN * 3], blend);
     out.ny = lerp(this.normal[i0 * 3 + 1], this.normal[iN * 3 + 1], blend);
     out.nz = lerp(this.normal[i0 * 3 + 2], this.normal[iN * 3 + 2], blend);

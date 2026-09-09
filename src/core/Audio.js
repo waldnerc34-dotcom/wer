@@ -16,6 +16,9 @@ export class EngineAudio {
     this.enabled = false;
     this.volume = 0.5;
     this.started = false;
+    // Weather, remembered so a preset chosen before the first tap still plays.
+    this.rain = 0;
+    this.weatherWind = 0.5;
   }
 
   /** Must be called from a user gesture. */
@@ -125,11 +128,57 @@ export class EngineAudio {
     this.windGain.connect(this.compressor);
     this.windSource.start();
 
+    /* -- rain ------------------------------------------------------------- */
+    // Two beds: the hiss of drops on the bodywork and the road, and the low
+    // rumble a storm puts under everything. Both are shaped noise, so they
+    // cost nothing to ship.
+    this.rainSource = ctx.createBufferSource();
+    this.rainSource.buffer = makeNoiseBuffer(ctx, 3);
+    this.rainSource.loop = true;
+    this.rainFilter = ctx.createBiquadFilter();
+    this.rainFilter.type = 'bandpass';
+    this.rainFilter.frequency.value = 2600;
+    this.rainFilter.Q.value = 0.45;
+    this.rainGain = ctx.createGain();
+    this.rainGain.gain.value = 0;
+    this.rainSource.connect(this.rainFilter);
+    this.rainFilter.connect(this.rainGain);
+    this.rainGain.connect(this.compressor);
+    this.rainSource.start();
+
+    this.rumbleSource = ctx.createBufferSource();
+    this.rumbleSource.buffer = makeNoiseBuffer(ctx, 3);
+    this.rumbleSource.loop = true;
+    this.rumbleFilter = ctx.createBiquadFilter();
+    this.rumbleFilter.type = 'lowpass';
+    this.rumbleFilter.frequency.value = 140;
+    this.rumbleGain = ctx.createGain();
+    this.rumbleGain.gain.value = 0;
+    this.rumbleSource.connect(this.rumbleFilter);
+    this.rumbleFilter.connect(this.rumbleGain);
+    this.rumbleGain.connect(this.compressor);
+    this.rumbleSource.start();
+
     this.lastGear = 1;
+    this.setWeather(this.rain, this.weatherWind);
   }
 
   resume() {
     if (this.ctx?.state === 'suspended') this.ctx.resume();
+  }
+
+  /**
+   * @param {number} rain 0 dry, 1 rain, 2 storm
+   * @param {number} wind 0..2, how hard it is blowing
+   */
+  setWeather(rain, wind = 0.5) {
+    this.rain = rain;
+    this.weatherWind = wind;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.rainGain.gain.setTargetAtTime(clamp(rain, 0, 2) * 0.055, t, 0.8);
+    this.rainFilter.frequency.setTargetAtTime(lerp(3000, 1900, clamp(rain - 1, 0, 1)), t, 0.8);
+    this.rumbleGain.gain.setTargetAtTime(clamp(rain - 0.6, 0, 1.4) * 0.16, t, 1.2);
   }
 
   setVolume(v) {
@@ -200,10 +249,18 @@ export class EngineAudio {
     this.squealGain.gain.setTargetAtTime(squeal * 0.13, t, 0.06);
     this.squealFilter.frequency.setTargetAtTime(squealPitch, t, 0.08);
 
-    // Wind rises steeply with speed.
-    const windLevel = clamp((speed - 12) / 90, 0, 1) ** 1.6 * 0.12;
+    // Wind rises steeply with speed, and a gale adds a floor to it.
+    const gust = clamp(this.weatherWind - 0.6, 0, 1.4) * 0.05;
+    const windLevel = clamp((speed - 12) / 90, 0, 1) ** 1.6 * 0.12 + gust;
     this.windGain.gain.setTargetAtTime(windLevel, t, 0.12);
     this.windFilter.frequency.setTargetAtTime(lerp(400, 1500, clamp(speed / 90, 0, 1)), t, 0.12);
+
+    // Spray off the tyres on a wet road: a hiss that grows with speed.
+    const wet = vehicle.track?.wetness ?? 0;
+    if (wet > 0.05 && this.rainGain) {
+      const spray = clamp((speed - 6) / 60, 0, 1) * wet * 0.06;
+      this.rainGain.gain.setTargetAtTime(clamp(this.rain, 0, 2) * 0.055 + spray, t, 0.2);
+    }
 
     // Shift blip.
     if (dt_.gear !== this.lastGear) {
