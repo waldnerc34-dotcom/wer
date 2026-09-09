@@ -155,6 +155,14 @@ export class Vehicle {
     const m = spec.mass;
     this.staticLoadFront = (m * GRAVITY * spec.frontWeightBias) / 2;
     this.staticLoadRear = (m * GRAVITY * (1 - spec.frontWeightBias)) / 2;
+
+    // The cornering the car can hold on dry tarmac, m/s²: what its tyres
+    // offer, less what load transfer, roll and a tall centre of gravity take
+    // away (`gripFactor`). The speed-sensitive lock and the stability
+    // control's reference are both sized from it, so a classic on period
+    // rubber gets a rack and an ESC that agree with its tyres.
+    const mu = this.wheels.reduce((sum, w) => sum + w.tyre.mu, 0) / this.wheels.length;
+    this.lateralLimit = spec.lateralLimit ?? mu * GRAVITY * (spec.gripFactor ?? 0.93);
   }
 
   /* ----------------------------------------------------------------- setup */
@@ -245,9 +253,10 @@ export class Vehicle {
     // rack's mechanical limit for parking. Rate-limited on top, so the car
     // cannot be flicked instantaneously.
     const speed = this.speed;
-    const usable =
-      Math.atan((spec.wheelbase * spec.steerLimitAccel) / Math.max(speed, 3) ** 2) +
-      spec.steerLimitMargin;
+    // Sized for the road under the front wheels: a soaked circuit has less
+    // cornering to give, so full lock asks for less.
+    const lateral = this.lateralLimit * this.track.grip(this.wheels[0].surface);
+    const usable = Math.atan((spec.wheelbase * lateral) / Math.max(speed, 3) ** 2) + spec.steerLimitMargin;
     this.steerLock = this.assists.steerLimiter ? Math.min(spec.maxSteerAngle, usable) : spec.maxSteerAngle;
     const target = c.steer * this.steerLock;
     this.steerAngle = approach(this.steerAngle, target, spec.steerRate * h);
@@ -328,7 +337,7 @@ export class Vehicle {
     this.#applyAero(forceAcc, torqueAcc);
 
     /* -- stability control: yaw ------------------------------------------- */
-    if (this.assists.stability) this.#yawDamping(torqueAcc);
+    if (this.assists.stability) this.#yawControl(torqueAcc);
 
     /* -- integrate --------------------------------------------------------- */
     this.#integrateBody(forceAcc, torqueAcc, h);
@@ -519,10 +528,20 @@ export class Vehicle {
     const brakeInput = w.axle === 'rear' ? Math.max(brake, c.handbrake) : brake;
 
     let brakeTorque = brakeInput * w.maxBrakeTorque;
-    if (this.assists.abs && c.handbrake < 0.5 && w.grounded) {
-      // Release pressure as the tyre approaches lockup.
-      const lock = clamp(-w.tyre.kappa / 0.16, 0, 1.6);
-      brakeTorque *= clamp(1 - (lock - 0.75) * 1.9, 0.14, 1);
+    if (this.assists.abs && c.handbrake < 0.5 && w.grounded && w.tyre.kappa < 0) {
+      // Release pressure as the tyre approaches the peak of its combined
+      // slip: one that is already leaning on its cornering grip is released
+      // sooner, because what anti-lock preserves in a corner is the
+      // steering, not the stopping.
+      const over = clamp((w.tyre.slipNorm - 0.85) / 0.45, 0, 1);
+      brakeTorque *= lerp(1, 0.12, over);
+    }
+    if (this.assists.stability && w.axle === 'rear' && c.handbrake < 0.5) {
+      // Brake-force distribution: as the body starts to slide, the rear
+      // brakes are eased so the rear tyres keep their cornering grip. A
+      // rear that is braking and sliding has none left to hold the car.
+      const slide = Math.max(0, Math.abs(this.telemetry.slipAngle) - this.spec.escDeadBand * 0.6);
+      brakeTorque *= clamp(1 - slide * 6, 0.3, 1);
     }
 
     const roadTorque = w.grounded ? -w.forceLong * w.radius : 0;
@@ -630,13 +649,19 @@ export class Vehicle {
 
   /**
    * Stability control's yaw half. A real system brakes individual wheels to
-   * pull the car's rotation back toward what the steering implies; this
-   * applies the equivalent moment directly. The reference is the kinematic
-   * yaw rate for the current steer and speed, so a car that is rotating
-   * faster than its front wheels are pointed gets damped — and one that is
-   * simply cornering does not.
+   * pull the car's rotation back toward what the driver asked for; this
+   * applies the equivalent moment directly.
+   *
+   * The reference is what the steering implies for a car with this much
+   * understeer, capped at the yaw rate the tyres can actually deliver at this
+   * speed. The cap matters: the kinematic yaw rate for full lock at 100 km/h
+   * is three times what any tyre can produce, and a reference the car cannot
+   * reach turns the controller into a yaw *booster* that throws the rear out
+   * the moment the driver winds on lock. Rotation beyond the reference — the
+   * rear stepping out, or the swing back the other way when a slide is
+   * caught — is damped hard; rotation short of it is left to the driver.
    */
-  #yawDamping(torqueAcc) {
+  #yawControl(torqueAcc) {
     const spec = this.spec;
     const v = this.forwardSpeed;
     if (Math.abs(v) < 3) return;
@@ -644,9 +669,15 @@ export class Vehicle {
     _q.copy(this.quaternion).invert();
     const wb = _v.copy(this.angularVelocity).applyQuaternion(_q);
     // Positive steer (right) means yaw about −Y in a right-handed Y-up frame.
-    const expected = (-v * Math.tan(this.effectiveSteer)) / spec.wheelbase;
-    const excess = wb.y - expected;
-    const torque = -excess * spec.escYawDamping * spec.inertia.yaw;
+    let reference = (-v * this.effectiveSteer) / (spec.wheelbase + spec.escUndersteer * v * v);
+    const limit = (this.lateralLimit * this.track.grip(this.wheels[2].surface)) / Math.abs(v);
+    reference = clamp(reference, -limit, limit);
+
+    const excess = wb.y - reference;
+    const turning = reference !== 0 ? reference : wb.y;
+    const overRotating = Math.sign(excess) === Math.sign(turning);
+    const gain = overRotating ? spec.escYawDamping : spec.escYawDamping * spec.escUndersteerGain;
+    const torque = -excess * gain * spec.inertia.yaw;
     _f.set(0, torque, 0).applyQuaternion(this.quaternion);
     torqueAcc.add(_f);
   }
@@ -805,14 +836,15 @@ function supercar(overrides) {
     restLength: 0.19,
     maxTravel: 0.085,
     maxSteerAngle: 0.58, // ~33°, the rack's mechanical limit
-    steerLimitAccel: 12, // m/s² of cornering the lock is sized for at speed
-    steerLimitMargin: 0.22, // rad of slip beyond that, to provoke and catch a slide
+    steerLimitMargin: 0.09, // rad past the kinematic angle: front slip to the peak, and a little to provoke
     steerRate: 3.4, // rad/s at the wheel
     // Stability control (ESC).
-    escDeadBand: 0.05, // rad of body slip before it acts (~3°)
-    escCounterSteer: 1.3, // rad of lock per rad of slip beyond that
+    escDeadBand: 0.1, // rad of body slip before the counter-steer acts (~6°)
+    escCounterSteer: 1.1, // rad of lock per rad of slip beyond that
     escSteerRate: 7, // rad/s — faster than a driver, as a real system is
-    escYawDamping: 4.2, // 1/s on yaw rate in excess of what the steer implies
+    escYawDamping: 6, // 1/s on yaw rate in excess of the reference
+    escUndersteer: 0.0024, // s²/m: understeer gradient of the reference bicycle model
+    escUndersteerGain: 0.12, // share of the damping applied when the car turns less than asked
     drivetrainLayout: 'rwd',
     dragArea: 0.68,
     downforceFront: 0.34,
@@ -949,7 +981,7 @@ export const CARS = [
       restLength: 0.26,
       maxTravel: 0.12,
       maxSteerAngle: 0.52,
-      steerLimitAccel: 9,
+      gripFactor: 0.8,
       aiGrip: 0.86,
       drivetrainLayout: 'awd',
       frontTorqueSplit: 0.4,

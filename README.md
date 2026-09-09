@@ -14,10 +14,20 @@ sideways), a tablet or a desktop browser. Every push to this branch builds the
 site and publishes it to the `gh-pages` branch through
 `.github/workflows/pages.yml`.
 
-If that link shows a 404, Pages has not been switched on for the repository
-yet — a one-time step only the repository owner can do: **Settings → Pages →
-Source: Deploy from a branch → `gh-pages` / (root)**. The site appears within
-a minute, and stays up to date from then on.
+If that link shows a 404, Pages is not on yet. Two one-time steps, both only
+the repository owner can do:
+
+1. GitHub only offers Pages on **public** repositories under the free plan, so
+   the repository has to be made public first: **Settings → General → Danger
+   Zone → Change visibility → Public**.
+2. Then **Settings → Pages → Source: Deploy from a branch → `gh-pages` /
+   (root)**.
+
+The site appears within a minute and stays up to date from then on — every
+push already rebuilds the `gh-pages` branch. If the repository is to stay
+private, the built `dist/` folder can be dropped onto any static host
+instead (Netlify Drop, Cloudflare Pages, Vercel), which gives the same kind
+of link.
 
 ```bash
 npm install
@@ -116,6 +126,13 @@ pedals, left stick to steer, bumpers to shift). The pause menu toggles ABS,
 traction control, stability control, the automatic gearbox, inverted steering
 and the **pacing arrows**.
 
+A key is all-or-nothing, so `src/core/Input.js` stands in for a pair of
+hands. Steering follows how long the key has been down and starts slow — the
+first tenth of a second is a nudge, full lock takes a quarter of a second at
+parking speeds and most of a second at 200 km/h — so a tap is a correction
+and a hold is a corner, with room between the two. Releasing centres quickly.
+What "full lock" means is decided by the car (below), not the key.
+
 ### Pacing arrows
 
 Chevrons are laid along the racing line for the whole lap, each pointing
@@ -167,6 +184,52 @@ out of the same loop.
   having on the straight and a liability into the braking zone.
 - Tyres cool toward the ambient temperature the weather sets, so a wet track
   is also a cold one.
+
+**Driver aids** — `src/physics/Vehicle.js`
+
+These are what make a 600 hp rear-drive car drivable from a keyboard or a
+thumb, and they are modelled on what the real systems do rather than on
+clamping the physics:
+
+- **Speed-sensitive lock.** Full lock at 100 km/h would put the front tyres
+  20° past their peak slip angle, so the rack's travel is sized, every step,
+  to the cornering the car can actually hold: the kinematic angle for its
+  lateral limit (derived from its tyres, less what roll and a tall centre of
+  gravity take away) plus the front slip it takes to reach the peak and a
+  little to provoke — about 8° at 100 km/h for the 458, 12° at 60. It reads
+  the surface under the front wheels, so a soaked road gives less lock.
+- **Stability control** applies the yaw moment a real system gets by braking
+  single wheels. Its reference is the yaw rate a car with this much
+  understeer would produce for the current steer, **capped at what the tyres
+  can deliver at this speed**. That cap is the whole point: the kinematic
+  yaw rate for full lock at 100 km/h is three times what any tyre can
+  produce, and a reference the car cannot reach turns the controller into a
+  yaw booster — which is exactly what an earlier version of this game had,
+  and why winding on lock at speed threw the rear out. Rotation beyond the
+  reference, including the swing back the other way when a slide is caught,
+  is damped hard; rotation short of it is left to the driver.
+- **Counter-steer assist** adds lock into a slide once the body slip passes
+  about 6°, at the rate a real system would, and never beyond the rack's
+  mechanical limit.
+- **Throttle bleed** past the same slip angle, proportional so it never
+  snatches — lifting instantly mid-corner is how a mid-engined car swaps
+  ends.
+- **Brake-force distribution** eases the rear brakes as the body starts to
+  slide, so the rear tyres keep their cornering grip while trail braking.
+- **ABS** releases pressure on the tyre's *combined* slip, not its
+  longitudinal slip alone: a tyre already leaning on its cornering grip is
+  released sooner, because what anti-lock preserves in a corner is the
+  steering, not the stopping.
+- **Traction control** aims at the peak of the longitudinal curve and lowers
+  that target as the rear tyres lean on their lateral peak.
+
+`node tools/manoeuvres.mjs` is the bench these were tuned on: scripted taps,
+holds, releases, lift-offs, trail-braking and full-throttle exits on a wide
+synthetic oval, printing yaw rate, lateral g, body slip and both axles' slip
+angles. With the aids on, a 0.2 s tap at 100 km/h is a 0.4 g nudge, a held
+key settles at 1.25 g with 5° of body slip and the fronts just past their
+peak, and a release straightens the car with no swing back — for every car
+in the roster.
 
 **Suspension** — `src/physics/Vehicle.js`
 
@@ -406,6 +469,25 @@ darker, the whole surface goes glossy, and the low spots of the roughness map
 — where water stands — become mirrors. Tyres throw spray instead of smoke and
 leave far less rubber, headlights come on, and the engine audio gains a rain
 bed and a storm rumble. Cars shower sparks when they hit the barriers.
+
+**Rain on the lens** — `src/render/RainDrops.js`. Drops bead up on the glass,
+sit there refracting the finished frame through themselves — the road and
+the trees, upside down and squeezed, which is what makes them read as water
+— and every so often one gathers enough to run, leaving a trail of beads
+down the screen. It is all procedural in the fragment shader: a grid of
+cells for the beads that sit, a set of columns for the ones that run, a
+handful of hashes per pixel and no state. The glass fills over a few seconds
+when the rain starts and clears when it stops, faster with the car moving,
+and at speed fewer drops sit still. With a post chain it is one effect
+among the others, before tone mapping; on the phone preset, which has no
+chain, the scene is rendered to a texture only while it rains and the drops
+are drawn over it in a second pass.
+
+**Rain on the road** — `src/render/Splashes.js`. Each drop that lands throws
+up a small crown and leaves a ring spreading over the wet surface for a
+third of a second: a pool of instanced quads scattered on the tarmac ahead
+of the camera, respawned wherever the track says there is road as they die.
+The CPU places them; the shaders animate them.
 
 ---
 

@@ -6,3 +6,4 @@ dist/
 .env*
 dist-artifact/
 artifact/
+scratch/

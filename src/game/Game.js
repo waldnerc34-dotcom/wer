@@ -9,6 +9,7 @@ import { TyreEffects } from '../render/Effects.js';
 import { Materials } from '../render/Materials.js';
 import { RacingLineMesh } from '../render/RacingLine.js';
 import { RainSystem } from '../render/Rain.js';
+import { SplashSystem } from '../render/Splashes.js';
 import { QUALITY, Renderer } from '../render/Renderer.js';
 import { CIRCUITS } from '../track/Layout.js';
 import { Pacing } from '../track/Pacing.js';
@@ -125,8 +126,11 @@ export class Game {
 
     this.onProgress?.(0.86, 'Setting the weather');
     const settings = this.renderer.settings;
-    this.rain = new RainSystem({ count: settings.rainCount ?? ((settings.particles ?? 700) <= 300 ? 1500 : 3600) });
+    const small = (settings.particles ?? 700) <= 300;
+    this.rain = new RainSystem({ count: settings.rainCount ?? (small ? 1500 : 3600) });
     this.renderer.scene.add(this.rain.mesh);
+    this.splashes = new SplashSystem({ count: settings.splashCount ?? (small ? 240 : 480) });
+    this.renderer.scene.add(this.splashes.mesh);
     await this.weather.apply(weather);
 
     this.onProgress?.(0.94, 'Final checks');
@@ -228,6 +232,12 @@ export class Game {
       this.rain.mesh.geometry.dispose();
       this.rain = null;
     }
+    if (this.splashes) {
+      this.renderer.scene.remove(this.splashes.mesh);
+      this.splashes.dispose();
+      this.splashes = null;
+    }
+    this.renderer.setRainOnLens(0);
   }
 
   /* ------------------------------------------------------------------ loop */
@@ -307,7 +317,9 @@ export class Game {
     this.renderer.setSkyboxCentre(player.position);
     this.camera.update(player, dt, impact);
     this.rain?.update(dt, this.renderer.camera);
+    this.splashes?.update(dt, this.renderer.camera, this.track);
     this.renderer.setSpeedBlur(player.speedKph);
+    this.renderer.setRainFlow(player.speedKph);
 
     this.audio.update(player, dt);
 

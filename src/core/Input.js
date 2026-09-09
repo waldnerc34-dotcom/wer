@@ -1,4 +1,4 @@
-import { approach, clamp } from './MathUtils.js';
+import { approach, clamp, lerp } from './MathUtils.js';
 
 const KEY_MAP = {
   throttle: ['KeyW', 'ArrowUp'],
@@ -16,12 +16,53 @@ const KEY_MAP = {
 };
 
 /**
- * Keyboard and gamepad input, smoothed into the analogue axes the car wants.
+ * Turns held keys into the analogue axes the car wants.
  *
- * A keyboard can only give 0 or 1, so steering and pedals are ramped toward
- * their targets at rates that mimic how quickly a driver can actually move.
- * Steering ramps faster the slower the car is going, which is what makes a
- * keyboard car drivable at all without feeling numb at speed.
+ * A key is all-or-nothing, so the ramps stand in for a driver's hands and
+ * feet. The pedals come on over about a quarter of a second and — deliberately
+ * — come off no faster, because lifting instantly mid-corner is how a
+ * mid-engined car swaps ends.
+ *
+ * Steering follows how long the key has been down, and starts slow: the first
+ * tenth of a second is a nudge, full lock takes a quarter of a second at
+ * parking speeds and most of a second at 200 km/h. A tap is a correction, a hold is a
+ * corner, and there is room between the two — which a linear ramp, where a
+ * tap already gave half the lock, never had. Releasing centres quickly, as a
+ * driver lets the wheel spin back through their hands.
+ *
+ * Shared with the handling tests, so the car is tested with the hands that
+ * drive it.
+ *
+ * @param {object} state  {throttle, brake, steer, steerHeld, steerDir}, updated in place
+ * @param {object} keys   {throttle, brake, left, right} booleans
+ * @param {number} dt
+ * @param {number} speedKph
+ * @param {boolean} [steering=true] false leaves the steering to an analogue source
+ */
+export function rampKeys(state, keys, dt, speedKph, steering = true) {
+  const throttleTarget = keys.throttle ? 1 : 0;
+  const brakeTarget = keys.brake ? 1 : 0;
+  state.throttle = approach(state.throttle, throttleTarget, dt * (throttleTarget ? 4.5 : 4));
+  state.brake = approach(state.brake, brakeTarget, dt * (brakeTarget ? 7 : 12));
+  if (!steering) return state;
+
+  const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  if (dir !== 0) {
+    state.steerHeld = dir === state.steerDir ? (state.steerHeld ?? 0) + dt : 0;
+    state.steerDir = dir;
+    const toFull = lerp(0.25, 0.6, clamp(speedKph / 220, 0, 1));
+    const shaped = Math.min(1, state.steerHeld / toFull) ** 1.35;
+    state.steer = approach(state.steer, dir * shaped, dt * 10);
+  } else {
+    state.steerHeld = 0;
+    state.steerDir = 0;
+    state.steer = approach(state.steer, 0, dt * 6);
+  }
+  return state;
+}
+
+/**
+ * Keyboard and gamepad input, smoothed into the analogue axes the car wants.
  */
 export class Input {
   constructor(target = window) {
@@ -29,7 +70,7 @@ export class Input {
     this.pressed = new Set();
     this.gamepadIndex = null;
 
-    this.state = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
+    this.state = { throttle: 0, brake: 0, steer: 0, handbrake: 0, steerHeld: 0, steerDir: 0 };
     this.raw = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
     this.usingGamepad = false;
     this.touch = null;
@@ -116,39 +157,25 @@ export class Input {
     }
 
     const touch = this.touch;
-
-    // Pedals. A key is all-or-nothing, so the ramps stand in for a foot: the
-    // throttle comes on over about a quarter of a second and — deliberately —
-    // comes off no faster, because lifting instantly mid-corner is how a
-    // mid-engined car swaps ends.
-    const throttleTarget = this.held('throttle') || touch?.state.throttle ? 1 : 0;
-    const brakeTarget = this.held('brake') || touch?.state.brake ? 1 : 0;
-    this.state.throttle = approach(this.state.throttle, throttleTarget, dt * (throttleTarget ? 4.5 : 4));
-    this.state.brake = approach(this.state.brake, brakeTarget, dt * (brakeTarget ? 7 : 12));
+    const keys = {
+      throttle: this.held('throttle') || Boolean(touch?.state.throttle),
+      brake: this.held('brake') || Boolean(touch?.state.brake),
+      left: this.held(inv > 0 ? 'left' : 'right'),
+      right: this.held(inv > 0 ? 'right' : 'left'),
+    };
     this.state.handbrake = this.held('handbrake') || touch?.state.handbrake ? 1 : 0;
-
-    const speedScale = clamp(1 - speedKph / 260, 0.3, 1);
 
     if (touch?.steering) {
       // Analogue steering from the slider or tilt: follow it closely, but
       // through a short lag so a thumb twitch does not become a snap input.
-      const target = clamp(touch.steer, -1, 1) * inv * clamp(speedScale * 1.7, 0.5, 1);
+      // The car's own speed-sensitive rack decides what full means.
+      rampKeys(this.state, keys, dt, speedKph, false);
+      const target = clamp(touch.steer, -1, 1) * inv;
       this.state.steer = approach(this.state.steer, target, dt * 9);
       return this.state;
     }
 
-    // Steering: a driver can wind on lock quickly at parking speeds but only
-    // makes small, slow inputs at 250 km/h.
-    const dir = ((this.held('right') ? 1 : 0) - (this.held('left') ? 1 : 0)) * inv;
-    const rate = 3.2 * speedScale + 0.7;
-    const centring = 5.4;
-
-    if (dir !== 0) {
-      this.state.steer = approach(this.state.steer, dir * clamp(speedScale * 1.7, 0.45, 1), dt * rate);
-    } else {
-      this.state.steer = approach(this.state.steer, 0, dt * centring);
-    }
-
+    rampKeys(this.state, keys, dt, speedKph);
     return this.state;
   }
 

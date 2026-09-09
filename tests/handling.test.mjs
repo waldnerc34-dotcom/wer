@@ -11,31 +11,24 @@
  */
 
 import { Driver } from '../src/game/AI.js';
-import { approach, clamp } from '../src/core/MathUtils.js';
+import { rampKeys } from '../src/core/Input.js';
+import { clamp } from '../src/core/MathUtils.js';
 import { CIRCUITS } from '../src/track/Layout.js';
 import { SURFACE, Track } from '../src/track/Track.js';
 import { CARS, Vehicle } from '../src/physics/Vehicle.js';
+import { MANOEUVRES, run as manoeuvre } from '../tools/manoeuvres.mjs';
 
 const DT = 1 / 120;
 const VERBOSE = process.argv.includes('--verbose');
 
-/** Keyboard ramps, copied from Input so the test drives what the player drives. */
+/** The Input layer's own key ramps, so the test drives what the player drives. */
 class KeyboardHands {
   constructor() {
-    this.state = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
+    this.state = { throttle: 0, brake: 0, steer: 0, handbrake: 0, steerHeld: 0, steerDir: 0 };
   }
 
   update(keys, dt, speedKph) {
-    const s = this.state;
-    s.throttle = approach(s.throttle, keys.throttle ? 1 : 0, dt * (keys.throttle ? 4.5 : 4));
-    s.brake = approach(s.brake, keys.brake ? 1 : 0, dt * (keys.brake ? 7 : 12));
-    const dir = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-    const speedScale = clamp(1 - speedKph / 260, 0.3, 1);
-    const rate = 3.2 * speedScale + 0.7;
-    s.steer = dir
-      ? approach(s.steer, dir * clamp(speedScale * 1.7, 0.45, 1), dt * rate)
-      : approach(s.steer, 0, dt * 5.4);
-    return s;
+    return rampKeys(this.state, keys, dt, speedKph);
   }
 }
 
@@ -114,6 +107,26 @@ export function driveLap(
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  // Scripted manoeuvres first: every car, the keys a person would press,
+  // the aids on. A tap is a nudge, a hold settles at the limit, a release
+  // straightens the car, and trail braking does not spin it.
+  for (const car of CARS) {
+    console.log(`\n=== ${car.name} — scripted manoeuvres, all aids on ===`);
+    const quietly = ([label, kph, script, opts]) => manoeuvre(car, label, kph, script, { ...opts, quiet: true });
+    const tap = quietly(MANOEUVRES.tap(100));
+    const hold = quietly(MANOEUVRES.hold(100));
+    const fast = quietly(MANOEUVRES.hold(160));
+    const brake = quietly(MANOEUVRES.brake());
+    console.log(
+      `  tap ${tap.peakLatG.toFixed(2)} g · hold ${hold.peakLatG.toFixed(2)} g, slip ${hold.peakSlipDeg.toFixed(1)}°, swing back ${hold.counterSwingDeg.toFixed(0)}°/s · 160 km/h slip ${fast.peakSlipDeg.toFixed(1)}° · trail braking slip ${brake.peakSlipDeg.toFixed(1)}°`,
+    );
+    check('a tap is a nudge, not a lane change', tap.peakLatG < 0.7 && tap.headingDeg < 5, `${tap.peakLatG.toFixed(2)} g, ${tap.headingDeg.toFixed(1)}°`);
+    check('a held key corners near the limit', hold.peakLatG > 0.85, `${hold.peakLatG.toFixed(2)} g`);
+    check('the rear stays behind the front', hold.peakSlipDeg < 8 && fast.peakSlipDeg < 8, `${hold.peakSlipDeg.toFixed(1)}° / ${fast.peakSlipDeg.toFixed(1)}°`);
+    check('a release straightens the car', hold.counterSwingDeg < 8 && fast.counterSwingDeg < 8, `swing back ${hold.counterSwingDeg.toFixed(0)}°/s / ${fast.counterSwingDeg.toFixed(0)}°/s`);
+    check('trail braking does not spin it', brake.peakSlipDeg < 14, `${brake.peakSlipDeg.toFixed(1)}°`);
+  }
+
   for (const circuit of CIRCUITS) {
     const r = driveLap(circuit);
     console.log(`\n=== ${circuit.name} — keyboard driver, all aids on ===`);

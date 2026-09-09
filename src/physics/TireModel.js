@@ -82,6 +82,7 @@ export class Tyre {
     this.Fy = 0;
     this.slipSpeed = 0;
     this.gripUsed = 0;
+    this.slipNorm = 0;
     this.lagLong = 1;
   }
 
@@ -135,6 +136,7 @@ export class Tyre {
       this.Fx = 0;
       this.Fy = 0;
       this.gripUsed = 0;
+      this.slipNorm = 0;
       return this;
     }
 
@@ -158,6 +160,7 @@ export class Tyre {
       this.Fx = 0;
       this.Fy = 0;
       this.gripUsed = 0;
+      this.slipNorm = 0;
       return this;
     }
 
@@ -175,6 +178,10 @@ export class Tyre {
     this.Fx = (sx / s) * F;
     this.Fy = (sy / s) * F;
     this.gripUsed = clamp(Math.abs(magic), 0, 1);
+    // Combined slip, normalised so the curve peaks at 1: the anti-lock and
+    // traction logic read this rather than the longitudinal slip alone,
+    // because a tyre already leaning on its cornering grip locks up sooner.
+    this.slipNorm = s;
     return this;
   }
 

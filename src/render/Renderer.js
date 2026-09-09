@@ -15,10 +15,14 @@ import {
   VignetteEffect,
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
+
+import { RainDropsEffect, RainDropsOverlay, RainOnLens } from './RainDrops.js';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { GroundedSkybox } from 'three/examples/jsm/objects/GroundedSkybox.js';
 
 import { clamp } from '../core/MathUtils.js';
+
+const _size = new THREE.Vector2();
 
 /** Quality presets, from "runs on a phone" to "runs on a good GPU". */
 export const QUALITY = {
@@ -181,6 +185,10 @@ export class Renderer {
 
     this.#buildLighting();
     if (this.usePost) this.#buildComposer();
+    // Rain on the lens: an effect in the post chain, or a second pass over
+    // a rendered-to-texture frame when there is no chain.
+    if (!this.usePost) this.rainOverlay = new RainDropsOverlay(this.renderer);
+    this.rainOnLens = new RainOnLens(this.usePost ? this.rainDrops : this.rainOverlay);
 
     this.frameTimes = [];
     this.resize();
@@ -274,6 +282,7 @@ export class Renderer {
     });
 
     this.speedBlur = new SpeedBlurEffect();
+    this.rainDrops = new RainDropsEffect();
 
     this.chromatic = new ChromaticAberrationEffect({
       offset: new THREE.Vector2(0.00022, 0.00022),
@@ -298,7 +307,7 @@ export class Renderer {
     const effects = [];
     if (s.motionBlur) effects.push(this.speedBlur);
     if (s.bloom) effects.push(this.bloom);
-    effects.push(this.chromatic, this.vignette, this.toneMapping, this.grain);
+    effects.push(this.rainDrops, this.chromatic, this.vignette, this.toneMapping, this.grain);
     this.composer.addPass(new EffectPass(this.camera, ...effects));
 
     if (s.smaa) {
@@ -368,6 +377,18 @@ export class Renderer {
     this.composer?.setSize(w, h);
     this.ao?.setSize(w, h);
     this.csm?.updateFrustums();
+    const size = this.renderer.getDrawingBufferSize(_size);
+    this.rainOnLens?.resize(Math.max(1, size.x), Math.max(1, size.y));
+  }
+
+  /** How much rain is on the lens: 0 none, 1 rain, 2 storm. */
+  setRainOnLens(rain) {
+    this.rainOnLens.setRain(rain);
+  }
+
+  /** Airflow over the lens, which is what drives the drops sideways and off. */
+  setRainFlow(speedKph) {
+    this.rainOnLens.setFlow(speedKph);
   }
 
   /**
@@ -382,13 +403,16 @@ export class Renderer {
 
   render(dt) {
     this.csm?.update();
+    this.rainOnLens.update(dt);
     if (this.composer) this.composer.render(dt);
+    else if (this.rainOnLens.active) this.rainOverlay.render(this.scene, this.camera);
     else this.renderer.render(this.scene, this.camera);
   }
 
   dispose() {
     this.csm?.dispose();
     this.composer?.dispose();
+    this.rainOverlay?.dispose();
     this.renderer.dispose();
   }
 }

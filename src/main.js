@@ -41,7 +41,8 @@ if (!supportsWebGL2()) {
 // Installable, and playable offline once everything has been fetched once.
 // Only for a served build: the dev server rewrites modules on the fly, and a
 // single-file page has nothing to cache.
-if (import.meta.env.PROD && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
+// The single-file build carries everything already and has no sw.js to fetch.
+if (import.meta.env.PROD && !globalThis.APEX_ASSETS && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker not registered:', err));
   });
