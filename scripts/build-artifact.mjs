@@ -65,6 +65,12 @@ const TEXTURES = [
 // for one that is not embedded.
 const HDRIS = ['hdri/venice_sunset_1k.hdr'];
 
+// The recordings the audio engine plays.
+const SOUNDS = ['sounds/engine.mp3', 'sounds/tyres.mp3', 'sounds/crash.mp3'];
+
+// Car thumbnails for the picker, as data: URIs like the textures.
+const THUMBS = ['rosso', 'concept', 'porsche', 'urus'].map((id) => `thumbs/${id}.webp`);
+
 /** Surface maps above this size are halved for the single-file build … */
 const TEXTURE_CAP = 512;
 /** … except the road normal, which you look at for the whole lap. 768² is
@@ -242,6 +248,24 @@ for (const h of HDRIS) {
   console.log(`  ${h.padEnd(32)} ${kb(bytes.length)}`);
 }
 
+for (const t of THUMBS) {
+  try {
+    const bytes = await readFile(join(ASSETS, t));
+    assets[t] = `data:image/webp;base64,${bytes.toString('base64')}`;
+    sizes.push([t, bytes.length]);
+  } catch {
+    console.warn(`  (no thumbnail ${t})`);
+  }
+}
+
+console.log('· sound');
+for (const snd of SOUNDS) {
+  const bytes = await readFile(join(ASSETS, snd));
+  assets[snd] = bytes.toString('base64');
+  sizes.push([snd, bytes.length]);
+  console.log(`  ${snd.padEnd(34)} ${kb(bytes.length)}`);
+}
+
 /* --------------------------------------------------------------- build --- */
 
 console.log('· bundling');
@@ -280,6 +304,9 @@ const safeJs = js.replace(/<\/script/gi, '<\\/script');
 const page = [
   '<title>APEX</title>',
   '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />',
+  // The typefaces come from Google Fonts here: a sandboxed page cannot fetch
+  // font files from itself, but this stylesheet host is allowed through.
+  '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:wght@400;600&display=swap" />',
   `<style>\n${css}\n</style>`,
   body,
   `<script>window.APEX_ASSETS=${JSON.stringify(assets)};</script>`,

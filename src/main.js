@@ -38,6 +38,15 @@ if (!supportsWebGL2()) {
   menu.showStart(start);
 }
 
+// Installable, and playable offline once everything has been fetched once.
+// Only for a served build: the dev server rewrites modules on the fly, and a
+// single-file page has nothing to cache.
+if (import.meta.env.PROD && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker not registered:', err));
+  });
+}
+
 /* ----------------------------------------------------------------- start -- */
 
 async function start(selection) {

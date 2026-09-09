@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b2f36"/>
+      <stop offset="0.55" stop-color="#15171b"/>
+      <stop offset="1" stop-color="#0b0c0f"/>
+    </linearGradient>
+    <linearGradient id="chev" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff5a3c"/>
+      <stop offset="1" stop-color="#d81e1e"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.18"/>
+    </linearGradient>
+    <pattern id="grain" width="6" height="6" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="0.6" fill="#ffffff" fill-opacity="0.045"/>
+      <circle cx="4" cy="4" r="0.5" fill="#000000" fill-opacity="0.12"/>
+    </pattern>
+    <clipPath id="clip"><rect width="512" height="512" rx="118"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)">
+    <rect width="512" height="512" fill="url(#bg)"/>
+    <rect width="512" height="512" fill="url(#grain)"/>
+    <!-- kerb stripe along the lower right -->
+    <g transform="rotate(-32 256 256)">
+      <rect x="-80" y="430" width="700" height="46" fill="#e8e6e1"/>
+      <rect x="-80" y="430" width="30" height="46" fill="#c8271f"/><rect x="-20" y="430" width="30" height="46" fill="#c8271f"/><rect x="40" y="430" width="30" height="46" fill="#c8271f"/><rect x="100" y="430" width="30" height="46" fill="#c8271f"/><rect x="160" y="430" width="30" height="46" fill="#c8271f"/><rect x="220" y="430" width="30" height="46" fill="#c8271f"/><rect x="280" y="430" width="30" height="46" fill="#c8271f"/><rect x="340" y="430" width="30" height="46" fill="#c8271f"/><rect x="400" y="430" width="30" height="46" fill="#c8271f"/><rect x="460" y="430" width="30" height="46" fill="#c8271f"/><rect x="520" y="430" width="30" height="46" fill="#c8271f"/><rect x="580" y="430" width="30" height="46" fill="#c8271f"/>
+      <rect x="-80" y="476" width="700" height="10" fill="#000" fill-opacity="0.35"/>
+    </g>
+    <!-- centre line -->
+    <g transform="rotate(-32 256 256)" opacity="0.55">
+      <rect x="-60" y="252" width="44" height="7" fill="#e8e6e1"/><rect x="20" y="252" width="44" height="7" fill="#e8e6e1"/><rect x="100" y="252" width="44" height="7" fill="#e8e6e1"/><rect x="180" y="252" width="44" height="7" fill="#e8e6e1"/><rect x="260" y="252" width="44" height="7" fill="#e8e6e1"/><rect x="340" y="252" width="44" height="7" fill="#e8e6e1"/><rect x="420" y="252" width="44" height="7" fill="#e8e6e1"/><rect x="500" y="252" width="44" height="7" fill="#e8e6e1"/><rect x="580" y="252" width="44" height="7" fill="#e8e6e1"/>
+    </g>
+    <!-- chevron -->
+    <path d="M 256 118 L 396 296 L 342 296 L 256 190 L 170 296 L 116 296 Z" fill="url(#chev)"/>
+    <path d="M 256 232 L 340 338 L 286 338 L 256 300 L 226 338 L 172 338 Z" fill="url(#chev)" opacity="0.92"/>
+    <path d="M 256 118 L 396 296 L 342 296 L 256 190 L 170 296 L 116 296 Z" fill="#000" opacity="0.12" transform="translate(0 6)"/>
+    <rect width="512" height="512" fill="url(#gloss)"/>
+  </g>
+</svg>

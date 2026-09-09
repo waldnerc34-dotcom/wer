@@ -24,6 +24,17 @@ export const REPOS = {
     base: 'https://raw.githubusercontent.com/pmndrs/examples',
     sha: '6ea1379e3163aa413970fea2e6b7b3e59b63d2c4',
   },
+  // The pmndrs racing game ships CC0 assets only; its engine, tyre and
+  // crash recordings are the ones a car actually makes.
+  racing: {
+    base: 'https://raw.githubusercontent.com/pmndrs/racing-game',
+    sha: '7816a5d954b75e6ad853ae4e4f0cbbd628072643',
+  },
+  // Google Fonts' repository of OFL typefaces.
+  fonts: {
+    base: 'https://raw.githubusercontent.com/google/fonts',
+    sha: '334b789e33413f3aba4264d9aa6c97f7b94c5a2f',
+  },
 };
 
 /** repo, remote path, local path (relative to public/assets), credit */
@@ -69,6 +80,46 @@ export const ASSETS = [
     to: 'models/cars/urus.glb',
     credit:
       'Lamborghini Urus — Steven Grey (sketchfab.com/Steven007, via pmndrs/examples), CC BY-NC 4.0 — non-commercial use only',
+  },
+
+  // ---------------------------------------------------------------- sound ---
+  {
+    repo: 'racing',
+    from: 'public/sounds/engine.mp3',
+    to: 'sounds/engine.mp3',
+    credit: 'Engine, tyre and crash recordings — pmndrs/racing-game, CC0',
+  },
+  {
+    repo: 'racing',
+    from: 'public/sounds/tire-brake.mp3',
+    to: 'sounds/tyres.mp3',
+    credit: 'Engine, tyre and crash recordings — pmndrs/racing-game, CC0',
+  },
+  {
+    repo: 'racing',
+    from: 'public/sounds/crash.mp3',
+    to: 'sounds/crash.mp3',
+    credit: 'Engine, tyre and crash recordings — pmndrs/racing-game, CC0',
+  },
+
+  // ---------------------------------------------------------------- fonts ---
+  {
+    repo: 'fonts',
+    from: 'ofl/bebasneue/BebasNeue-Regular.ttf',
+    to: 'fonts/BebasNeue-Regular.ttf',
+    credit: 'Bebas Neue — Ryoichi Tsunekawa / Dharma Type, SIL Open Font License 1.1',
+  },
+  {
+    repo: 'fonts',
+    from: 'ofl/barlowcondensed/BarlowCondensed-Regular.ttf',
+    to: 'fonts/BarlowCondensed-Regular.ttf',
+    credit: 'Barlow Condensed — Jeremy Tribby, SIL Open Font License 1.1',
+  },
+  {
+    repo: 'fonts',
+    from: 'ofl/barlowcondensed/BarlowCondensed-SemiBold.ttf',
+    to: 'fonts/BarlowCondensed-SemiBold.ttf',
+    credit: 'Barlow Condensed — Jeremy Tribby, SIL Open Font License 1.1',
   },
 
   // ------------------------------------------------------------- lighting ---

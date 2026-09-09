@@ -23,7 +23,10 @@
     "serve:artifact": "node tools/artifact-server.mjs",
     "test:controls": "node tests/controls.test.mjs",
     "test:camera": "node tests/camera.test.mjs",
-    "test:handling": "node tests/handling.test.mjs"
+    "test:handling": "node tests/handling.test.mjs",
+    "start": "vite build && node tools/serve.mjs",
+    "serve": "node tools/serve.mjs",
+    "icons": "node tools/make-icons.mjs"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",

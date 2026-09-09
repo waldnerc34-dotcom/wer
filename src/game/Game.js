@@ -121,6 +121,7 @@ export class Game {
 
     this.onProgress?.(0.72, 'Warming the cars');
     await this.#spawnCars(carDef, mode === 'race' ? opponents : 0);
+    await this.audio.load(this.assets);
 
     this.onProgress?.(0.86, 'Setting the weather');
     const settings = this.renderer.settings;

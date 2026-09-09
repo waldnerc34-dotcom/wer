@@ -1,4 +1,5 @@
-import { CIRCUITS } from '../track/Layout.js';
+import { Assets } from '../core/Assets.js';
+import { CIRCUITS, buildCentreline } from '../track/Layout.js';
 import { CARS } from '../physics/Vehicle.js';
 import { WEATHERS } from '../game/Weather.js';
 import { QUALITY } from '../render/Renderer.js';
@@ -6,7 +7,10 @@ import { formatLap } from '../game/Timing.js';
 
 /**
  * Front end: the start screen, the loading screen, the pause menu and the
- * end-of-session results. All plain DOM rendered into one overlay element.
+ * end-of-session results. Plain DOM rendered into one overlay element, laid
+ * out like a race programme: the wordmark and the vitals on the left, the
+ * entry form on the right — cars as photographs, circuits as their own
+ * outlines, the weather as a row of chips.
  */
 export class Menu {
   constructor(root, { touch = false, cars = CARS } = {}) {
@@ -23,10 +27,12 @@ export class Menu {
       steering: 'touch',
       weather: 'clear',
     };
+    this.outlines = new Map();
   }
 
   clear() {
     this.root.innerHTML = '';
+    if (this.tipTimer) clearInterval(this.tipTimer);
   }
 
   /* ------------------------------------------------------------- main menu */
@@ -34,63 +40,93 @@ export class Menu {
   /** @param {(selection: object) => void} onStart */
   showStart(onStart) {
     this.clear();
-    const screen = el('div', 'screen');
-    const card = el('div', 'card');
+    const screen = el('div', 'screen start');
 
-    card.innerHTML = `
-      <h1 class="wordmark">APEX</h1>
+    const ghost = el('div', 'ghost');
+    ghost.innerHTML = `<svg class="ghost-track" viewBox="0 0 120 72" preserveAspectRatio="xMidYMid meet"><path d=""/></svg>`;
+    screen.append(ghost);
+
+    const hero = el('aside', 'hero');
+    hero.innerHTML = `
+      <div class="mark">${MARK}</div>
+      <h1 class="wordmark">AP<em>EX</em></h1>
+      <p class="strap">Racing simulator</p>
       <p class="tagline">
-        A physically-based racing simulator. Pacejka tyre model, raycast suspension,
-        a limited-slip differential and real aerodynamics — driving downloaded
-        supercar models under captured HDRI lighting.
+        Real downloaded cars on a Pacejka tyre model, raycast suspension and
+        honest aerodynamics. Five circuits, six weathers, and arrows on the
+        road that show you the line.
       </p>
-      <div class="field" data-field="car"><label>CAR</label><div class="choices"></div></div>
-      <div class="field" data-field="circuit"><label>CIRCUIT</label><div class="choices"></div></div>
-      <div class="field" data-field="weather"><label>WEATHER</label><div class="choices"></div></div>
-      <div class="field" data-field="mode"><label>SESSION</label><div class="choices"></div></div>
-      <div class="field" data-field="quality"><label>GRAPHICS</label><div class="choices"></div></div>
-      <div class="field" data-field="steering" hidden><label>STEERING</label><div class="choices"></div></div>
-      <div class="actions">
-        <button class="btn" data-start>Go racing</button>
-        <span class="loading-note" data-hint>Keyboard or gamepad · W A S D to drive</span>
-      </div>
+      <ul class="stats">
+        <li><b>${this.cars.length}</b>cars</li>
+        <li><b>${CIRCUITS.length}</b>circuits</li>
+        <li><b>${WEATHERS.length}</b>weathers</li>
+        <li><b>240<small>Hz</small></b>physics</li>
+      </ul>
       <div class="keys" data-keys>
-        <div><b>W / S</b> throttle · brake</div>
-        <div><b>A / D</b> steer</div>
+        <div><b>W S</b> throttle · brake</div>
+        <div><b>A D</b> steer</div>
         <div><b>Space</b> handbrake</div>
-        <div><b>Q / E</b> manual shift</div>
-        <div><b>V</b> change camera</div>
+        <div><b>Q E</b> shift</div>
+        <div><b>V</b> camera</div>
         <div><b>C</b> look behind</div>
-        <div><b>R</b> rejoin the circuit</div>
-        <div><b>L</b> headlights</div>
+        <div><b>R</b> rejoin</div>
         <div><b>Esc</b> pause</div>
-      </div>
-    `;
+      </div>`;
 
-    this.#choices(card, 'car', this.cars.map((c) => ({
+    const picker = el('main', 'picker');
+    picker.innerHTML = `
+      <section class="field" data-field="car"><header><label>Car</label><span data-sub></span></header><div class="choices cards"></div></section>
+      <section class="field" data-field="circuit"><header><label>Circuit</label><span data-sub></span></header><div class="choices outlines"></div></section>
+      <section class="field" data-field="weather"><header><label>Weather</label><span data-sub></span></header><div class="choices chips"></div></section>
+      <div class="row2">
+        <section class="field" data-field="mode"><label>Session</label><div class="choices seg"></div></section>
+        <section class="field" data-field="quality"><label>Graphics</label><div class="choices seg"></div></section>
+        <section class="field" data-field="steering" hidden><label>Steering</label><div class="choices seg"></div></section>
+      </div>
+      <div class="actions">
+        <button class="go" data-start><span>Go racing</span><i>›</i></button>
+        <span class="hint" data-hint>Keyboard or gamepad · W A S D to drive</span>
+      </div>`;
+
+    screen.append(hero, picker);
+    this.root.append(screen);
+
+    const ghostPath = ghost.querySelector('path');
+    const showGhost = (id) => {
+      ghostPath.setAttribute('d', this.#outline(CIRCUITS.find((c) => c.id === id)).d);
+    };
+
+    this.#choices(picker, 'car', 'car', this.cars.map((c) => ({
       id: c.id,
       label: c.name,
       note: c.badge,
+      image: Assets.urlFor(`thumbs/${c.id}.webp`),
     })), (v) => (this.selection.carId = v), this.selection.carId);
 
-    this.#choices(card, 'circuit', CIRCUITS.map((c) => ({
+    this.#choices(picker, 'circuit', 'circuit', CIRCUITS.map((c) => ({
       id: c.id,
       label: c.name,
       note: c.country,
-    })), (v) => (this.selection.circuitId = v), this.selection.circuitId);
+      svg: this.#outline(c).svg,
+    })), (v) => {
+      this.selection.circuitId = v;
+      showGhost(v);
+    }, this.selection.circuitId);
+    showGhost(this.selection.circuitId);
 
-    this.#choices(card, 'weather', WEATHERS.map((w) => ({
+    this.#choices(picker, 'weather', 'chip', WEATHERS.map((w) => ({
       id: w.id,
       label: w.label,
       note: w.note,
+      svg: GLYPHS[w.id] ?? GLYPHS.clear,
     })), (v) => (this.selection.weather = v), this.selection.weather);
 
-    this.#choices(card, 'mode', [
+    this.#choices(picker, 'mode', 'seg', [
       { id: 'time-trial', label: 'Time trial', note: 'Empty circuit, chase the clock' },
-      { id: 'race', label: 'Race', note: 'Five AI drivers, rolling start' },
+      { id: 'race', label: 'Race', note: `${this.selection.opponents} AI drivers` },
     ], (v) => (this.selection.mode = v), this.selection.mode);
 
-    this.#choices(card, 'quality', Object.entries(QUALITY).map(([id, q]) => ({
+    this.#choices(picker, 'quality', 'seg', Object.entries(QUALITY).map(([id, q]) => ({
       id,
       label: q.label,
       note: qualityNote(id),
@@ -98,37 +134,79 @@ export class Menu {
 
     if (this.touch) {
       // Phones: on-screen controls, and the keyboard legend is just noise.
-      card.querySelector('[data-keys]').hidden = true;
-      card.querySelector('[data-hint]').textContent = 'Turn your phone sideways · touch or tilt to steer';
-      card.querySelector('[data-field="steering"]').hidden = false;
-      this.#choices(card, 'steering', [
+      hero.querySelector('[data-keys]').hidden = true;
+      picker.querySelector('[data-hint]').textContent = 'Turn your phone sideways · touch or tilt to steer';
+      picker.querySelector('[data-field="steering"]').hidden = false;
+      this.#choices(picker, 'steering', 'seg', [
         { id: 'touch', label: 'Touch slider', note: 'Left thumb steers' },
         { id: 'tilt', label: 'Tilt', note: 'Hold the phone like a wheel' },
       ], (v) => (this.selection.steering = v), this.selection.steering);
     }
 
-    card.querySelector('[data-start]').addEventListener('click', () => {
+    picker.querySelector('[data-start]').addEventListener('click', () => {
       onStart({ ...this.selection });
     });
-
-    screen.append(card);
-    this.root.append(screen);
   }
 
-  #choices(card, field, items, onPick, initial) {
-    const host = card.querySelector(`[data-field="${field}"] .choices`);
+  /**
+   * Renders one row of choices.
+   * @param {'car'|'circuit'|'chip'|'seg'} kind
+   */
+  #choices(card, field, kind, items, onPick, initial) {
+    const section = card.querySelector(`[data-field="${field}"]`);
+    const host = section.querySelector('.choices');
+    const sub = section.querySelector('[data-sub]');
+    const describe = (item) => {
+      if (sub) sub.textContent = item.note ?? '';
+    };
     for (const item of items) {
-      const b = el('button', 'choice');
+      const b = el('button', `choice ${kind}`);
       b.type = 'button';
-      b.innerHTML = `${item.label}${item.note ? `<small>${item.note}</small>` : ''}`;
+      if (kind === 'car') {
+        b.innerHTML = `${item.image ? `<img src="${item.image}" alt="" loading="lazy" />` : ''}<div class="plate"><div class="name">${item.label}</div><small>${item.note ?? ''}</small></div>`;
+      } else if (kind === 'circuit') {
+        b.innerHTML = `${item.svg}<div class="name">${item.label}</div><small>${item.note ?? ''}</small>`;
+      } else if (kind === 'chip') {
+        b.innerHTML = `${item.svg}<span class="name">${item.label}</span><small>${item.note ?? ''}</small>`;
+      } else {
+        b.innerHTML = `<div class="name">${item.label}</div>${item.note ? `<small>${item.note}</small>` : ''}`;
+      }
       b.setAttribute('aria-pressed', String(item.id === initial));
+      if (item.id === initial) describe(item);
       b.addEventListener('click', () => {
         for (const sib of host.children) sib.setAttribute('aria-pressed', 'false');
         b.setAttribute('aria-pressed', 'true');
+        describe(item);
         onPick(item.id);
       });
       host.append(b);
     }
+  }
+
+  /** The circuit drawn from its own layout, fitted to a 120×72 box. */
+  #outline(circuit) {
+    if (this.outlines.has(circuit.id)) return this.outlines.get(circuit.id);
+    const pts = buildCentreline(circuit.segments, { step: 8 });
+    let minx = Infinity, maxx = -Infinity, minz = Infinity, maxz = -Infinity;
+    for (const p of pts) {
+      minx = Math.min(minx, p.x); maxx = Math.max(maxx, p.x);
+      minz = Math.min(minz, p.z); maxz = Math.max(maxz, p.z);
+    }
+    const pad = 6;
+    const sc = Math.min((120 - 2 * pad) / (maxx - minx + 1e-6), (72 - 2 * pad) / (maxz - minz + 1e-6));
+    const ox = (120 - (maxx - minx) * sc) / 2;
+    const oz = (72 - (maxz - minz) * sc) / 2;
+    // +X is the driver's left when heading +Z: flip X so the map reads from above.
+    const X = (x) => (ox + (maxx - x) * sc).toFixed(1);
+    const Y = (z) => (72 - oz - (z - minz) * sc).toFixed(1);
+    const d = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p.x)} ${Y(p.z)}`).join(' ') + ' Z';
+    const start = pts[0];
+    const out = {
+      d,
+      svg: `<svg viewBox="0 0 120 72" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><path d="${d}"/><circle cx="${X(start.x)}" cy="${Y(start.z)}" r="2.6"/></svg>`,
+    };
+    this.outlines.set(circuit.id, out);
+    return out;
   }
 
   /* --------------------------------------------------------------- loading */
@@ -138,13 +216,21 @@ export class Menu {
     const screen = el('div', 'screen');
     screen.innerHTML = `
       <div class="loading">
-        <h1 class="wordmark">APEX</h1>
+        <h1 class="wordmark">AP<em>EX</em></h1>
         <div class="bar"><i data-bar></i></div>
         <div class="loading-note" data-note>Preparing…</div>
+        <div class="tip" data-tip></div>
       </div>`;
     this.root.append(screen);
     this.bar = screen.querySelector('[data-bar]');
     this.note = screen.querySelector('[data-note]');
+    const tip = screen.querySelector('[data-tip]');
+    let i = Math.floor(Math.random() * TIPS.length);
+    tip.innerHTML = TIPS[i];
+    this.tipTimer = setInterval(() => {
+      i = (i + 1) % TIPS.length;
+      tip.innerHTML = TIPS[i];
+    }, 3600);
   }
 
   setProgress(fraction, label) {
@@ -158,12 +244,11 @@ export class Menu {
     this.clear();
     const screen = el('div', 'screen');
     const card = el('div', 'card');
-    card.style.width = 'min(560px, 92vw)';
     card.innerHTML = `
-      <h1 class="wordmark" style="font-size:38px">Paused</h1>
-      <p class="tagline">${state.carName} · ${state.trackName}</p>
-      <div class="field" data-field="assists"><label>DRIVER AIDS</label><div class="choices"></div></div>
-      <p class="loading-note" style="margin:-6px 0 14px">Arrows on the road: <b style="color:#5ef08a">green</b> accelerate · <b style="color:#f4d43a">yellow</b> ease off · <b style="color:#ff5a4a">red</b> brake</p>
+      <h1 class="wordmark">Paused</h1>
+      <p class="tagline">${state.carName} · ${state.trackName} · ${state.weather ?? ''}</p>
+      <div class="field" data-field="assists"><label>Driver aids</label><div class="choices seg"></div></div>
+      <p class="legend"><span><i style="background:#5ef08a"></i>accelerate</span><span><i style="background:#f4d43a"></i>ease off</span><span><i style="background:#ff5a4a"></i>brake</span></p>
       <div class="actions">
         <button class="btn" data-resume>Resume</button>
         <button class="btn ghost" data-restart>Restart session</button>
@@ -180,9 +265,9 @@ export class Menu {
       ['racingLine', 'Pacing arrows'],
     ];
     for (const [key, label] of toggles) {
-      const b = el('button', 'choice');
+      const b = el('button', 'choice toggle');
       b.type = 'button';
-      b.textContent = label;
+      b.innerHTML = `<span class="sw"></span><span class="name">${label}</span>`;
       b.setAttribute('aria-pressed', String(Boolean(assists[key])));
       b.addEventListener('click', () => {
         const next = !(b.getAttribute('aria-pressed') === 'true');
@@ -217,7 +302,7 @@ export class Menu {
       : '<tr><td colspan="2">No completed laps</td></tr>';
 
     card.innerHTML = `
-      <h1 class="wordmark" style="font-size:38px">Session</h1>
+      <h1 class="wordmark">Session</h1>
       <p class="tagline">${carName} · ${trackName}</p>
       <table>${rows}</table>
       <div class="actions"><button class="btn" data-close>Back to the pits</button></div>`;
@@ -252,3 +337,36 @@ function qualityNote(id) {
     high: '4K shadows, full scenery',
   }[id];
 }
+
+const TIPS = [
+  '<b>Green</b> arrows: accelerate. <b>Yellow</b>: ease off. <b>Red</b>: brake.',
+  'The arrows sit on the racing line — wide in, clip the apex, wide out.',
+  'Trail-braking into a downhill corner loads the front and lightens the rear.',
+  'Tyres have a working window: cold ones slide, overheated ones give up.',
+  'In the rain the braking zones start earlier — the arrows already know.',
+  'A tow down the straight is free speed; the turbulence into the braking zone is not.',
+  'Press <b>R</b> if you end up in the gravel. Lap invalidated, dignity restored.',
+  'Kerbs are raised and ridged. The inside ones are yours; the outside ones bite.',
+];
+
+/** The app mark, inline so the start screen needs no fetch. */
+const MARK = `<svg viewBox="0 0 512 512" aria-hidden="true">
+  <defs>
+    <linearGradient id="mbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b2f36"/><stop offset="1" stop-color="#0b0c0f"/></linearGradient>
+    <linearGradient id="mch" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff5a3c"/><stop offset="1" stop-color="#d81e1e"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#mbg)"/>
+  <g transform="rotate(-32 256 256)"><rect x="-80" y="430" width="700" height="46" fill="#e8e6e1"/>${Array.from({ length: 12 }, (_, i) => `<rect x="${-80 + i * 60}" y="430" width="30" height="46" fill="#c8271f"/>`).join('')}</g>
+  <path d="M 256 118 L 396 296 L 342 296 L 256 190 L 170 296 L 116 296 Z" fill="url(#mch)"/>
+  <path d="M 256 232 L 340 338 L 286 338 L 256 300 L 226 338 L 172 338 Z" fill="url(#mch)" opacity="0.92"/>
+</svg>`;
+
+/** Weather glyphs, stroked in the current colour. */
+const GLYPHS = {
+  clear: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>`,
+  overcast: `<svg viewBox="0 0 24 24"><path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.5A3.5 3.5 0 0 0 7 18z"/></svg>`,
+  rain: `<svg viewBox="0 0 24 24"><path d="M7 15h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.5A3.5 3.5 0 0 0 7 15z"/><path d="M8 18l-1 3M12 18l-1 3M16 18l-1 3"/></svg>`,
+  storm: `<svg viewBox="0 0 24 24"><path d="M7 14h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.4 1.5A3.5 3.5 0 0 0 7 14z"/><path d="M13 14l-2.5 4h3L11 22"/></svg>`,
+  fog: `<svg viewBox="0 0 24 24"><path d="M4 10h12M6 14h14M4 18h10"/></svg>`,
+  night: `<svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>`,
+};

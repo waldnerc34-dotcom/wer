@@ -232,6 +232,7 @@ export class Drivetrain {
 /** Naturally aspirated mid-engine V8, ~600 hp at 9 000 rpm. */
 export const V8_NA = {
   name: '4.5 V8',
+  cylinders: 8,
   torqueCurve: [
     [800, 240],
     [1500, 340],
@@ -266,6 +267,7 @@ export const V8_NA = {
 /** Twin-turbo V10 for the concept car: more torque, shorter gearing. */
 export const V10_TT = {
   name: '5.2 V10 TT',
+  cylinders: 10,
   torqueCurve: [
     [800, 320],
     [1500, 520],
@@ -299,6 +301,7 @@ export const V10_TT = {
 /** Twin-turbo flat-six for the 911: a broad plateau of torque, PDK-quick shifts. */
 export const F6_TT = {
   name: '3.0 flat-six TT',
+  cylinders: 6,
   torqueCurve: [
     [800, 180],
     [1500, 330],
@@ -331,6 +334,7 @@ export const F6_TT = {
 /** Twin-turbo V8 for the Urus: 850 Nm from just off idle, an eight-speed automatic. */
 export const V8_TT = {
   name: '4.0 V8 TT',
+  cylinders: 8,
   torqueCurve: [
     [800, 300],
     [1500, 600],
@@ -366,6 +370,7 @@ export const V8_TT = {
  */
 export const L6_RACE = {
   name: '2.4 L24 straight-six',
+  cylinders: 6,
   torqueCurve: [
     [800, 120],
     [1500, 170],

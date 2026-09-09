@@ -36,6 +36,12 @@ export class Assets {
     return !EMBEDDED || Boolean(EMBEDDED[path]);
   }
 
+  /** A URL the DOM can use for an image: the served file, or the embedded data: URI. */
+  static urlFor(path) {
+    if (EMBEDDED) return EMBEDDED[path] ?? null;
+    return `./assets/${path}`;
+  }
+
   constructor(renderer) {
     this.renderer = renderer;
     this.manager = new THREE.LoadingManager();
@@ -119,6 +125,26 @@ export class Assets {
     });
     this.textures.set(key, promise);
     return promise;
+  }
+
+  /* ---------------------------------------------------------------- audio */
+
+  /**
+   * Raw bytes of a sound file, for the audio engine to decode. Cached, and
+   * handed out as a copy each time because decodeAudioData consumes its input.
+   */
+  async audio(path) {
+    this.sounds ??= new Map();
+    if (!this.sounds.has(path)) {
+      const load = this.embedded
+        ? Promise.resolve(bytesOf(embeddedOrThrow(path)))
+        : fetch(this.url(path)).then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status} for ${path}`);
+            return r.arrayBuffer();
+          });
+      this.sounds.set(path, load);
+    }
+    return (await this.sounds.get(path)).slice(0);
   }
 
   /* ---------------------------------------------------------- environment */

@@ -21,11 +21,31 @@ a minute, and stays up to date from then on.
 
 ```bash
 npm install
-npm run dev          # http://localhost:5173
+npm start            # builds, then serves the game on your network
 ```
 
-Assets are committed, so there is nothing else to fetch. `npm run build`
-produces a static `dist/` you can host anywhere.
+`npm start` prints two addresses: `http://localhost:4173/` for the machine
+you ran it on, and a `http://192.168.x.x:4173/` one for a phone or tablet on
+the same Wi-Fi. Assets are committed, so there is nothing else to fetch.
+`npm run dev` runs the Vite dev server instead, and `npm run build` produces
+a static `dist/` you can host anywhere.
+
+### Add it to your home screen
+
+The site is an installable web app: a manifest, a set of icons (the pacing
+chevron on tarmac — `npm run icons` redraws them from `tools/make-icons.mjs`)
+and a service worker that caches everything after the first visit, so it
+opens full-screen from the home screen and works offline.
+
+- **iPhone / iPad** — open the address in Safari, tap Share → *Add to Home
+  Screen*. Works from `npm start` on your own Wi-Fi as well as from the
+  public site.
+- **Android** — Chrome offers *Install app* from the menu. Android needs a
+  secure address for that, so install from the GitHub Pages URL (or from
+  `http://localhost` on the phone itself); a plain home-Wi-Fi address opens
+  the game but stays a bookmark.
+- **Desktop Chrome / Edge** — the install icon in the address bar, from
+  `http://localhost:4173/` or the public site.
 
 ## As a single file
 
@@ -222,6 +242,30 @@ second off a real launch-controlled car — the clutch model gives up that time
 pulling away, which is the one number here I would still call approximate.
 
 ---
+
+## The front end
+
+The start screen is laid out like a race programme: the wordmark and the
+vitals on the left, the entry form on the right. Cars are shown as
+photographs rendered by the game's own renderer (`tools/car-thumbs.mjs`
+drives a headless browser through every car and crops the frame), circuits
+as their own outlines drawn from the layout data at runtime, the weather as
+a row of chips. Typefaces are Bebas Neue and Barlow Condensed, self-hosted
+under the SIL Open Font License; the single-file build takes them from
+Google Fonts, the one stylesheet host a sandboxed page may reach.
+
+## Sound
+
+The engine is a recording — a V8 loop from the CC0 assets of the pmndrs
+racing game — played back at the rate that puts its firing frequency where
+the simulated engine's is: rpm and cylinder count set the pitch, so the
+flat-six, the straight-six, the V8s and the V10 come out as different
+engines. A second copy an octave down puts weight under it at high revs, a
+low-pass opens with the throttle so lifting off sounds like lifting off, and
+the limiter and gearshifts cut it the way they cut the real thing. Tyre
+squeal is a recording too, played by slip; impacts get a recorded crash.
+Wind, rain and a storm's rumble are shaped noise, which is what they are.
+If the recordings cannot be loaded, a simple synthesised engine stands in.
 
 ## The cars
 
@@ -434,6 +478,9 @@ repository — none of it is generated geometry. See
   non-commercial use only; remove `urus` from the manifest for a commercial
   build)
 - **Village Pack** trees, bushes and rocks — Babylon.js Assets (CC BY 4.0)
+- **Engine, tyre and crash recordings** — pmndrs/racing-game (CC0)
+- **Bebas Neue** (Dharma Type) and **Barlow Condensed** (Jeremy Tribby) —
+  SIL Open Font License 1.1
 - **HDRI environments** — Poly Haven (CC0), mirrored by three.js
 - **Grass and rocky-ground PBR maps** — Babylon.js Assets (CC BY 4.0)
 
