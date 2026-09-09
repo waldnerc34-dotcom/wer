@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import { clamp, damp, lerp, wrap, wrapDelta } from '../core/MathUtils.js';
+import { approach as approachTo, clamp, damp, lerp, wrap, wrapDelta } from '../core/MathUtils.js';
 
 const _v = new THREE.Vector3();
 const _target = new THREE.Vector3();
@@ -53,15 +53,20 @@ export class Driver {
       this.recoverTimer = Math.max(this.recoverTimer, 1.6);
     }
     if (speed < 1.6) this.recoverTimer += dt;
-    else if (this.recoverTimer > 0) this.recoverTimer -= dt * 0.6;
+    else {
+      this.stuckFor = Math.max(0, (this.stuckFor ?? 0) - dt * 2);
+      if (this.recoverTimer > 0) this.recoverTimer -= dt * 0.6;
+    }
 
     if (this.recoverTimer > 1.2) {
       return this.#recover(dt, q, alongTrack);
     }
 
     /* -- where to aim ------------------------------------------------------ */
-    // Look further ahead the faster we go, and further still for good drivers.
-    const lookahead = clamp(6 + speed * lerp(0.5, 0.72, this.skill), 8, 70);
+    // Pure pursuit is only stable while the aim point stays inside the arc the
+    // car can actually follow. Roughly half a second of travel is the classic
+    // choice; much further and the car cuts corners and runs wide on exit.
+    const lookahead = clamp(7 + speed * lerp(0.34, 0.46, this.skill), 9, 48);
     track.racingLineAt(s + lookahead, _target);
 
     // Offset the line to avoid whoever is alongside.
@@ -87,26 +92,47 @@ export class Driver {
     const curvature = (2 * Math.sin(angle)) / distance;
     let steer = Math.atan(curvature * v.spec.wheelbase) / v.spec.maxSteerAngle;
 
-    // Counter-steer into a slide rather than fighting it.
+    // Counter-steer *into* a slide. The car's slip angle is positive when its
+    // velocity points right of the nose, and the correction is to steer right
+    // — the same sign. Getting this backwards turns every small slide into a
+    // spin, which is exactly what it did.
     const slip = v.telemetry.slipAngle;
-    if (Math.abs(slip) > 0.09) steer -= slip * lerp(0.5, 1.15, this.skill);
+    if (Math.abs(slip) > 0.06) {
+      steer += (slip - Math.sign(slip) * 0.06) * lerp(0.7, 1.25, this.skill);
+    }
+
+    // Only pull back toward the line once genuinely wide, and damp it with the
+    // rate the car is already crossing the track — a proportional-only term
+    // here weaves the car down the straights.
+    const wide = q.lateral - track.lineOffset[track.indexAt(s)];
+    const overshoot = Math.sign(wide) * Math.max(0, Math.abs(wide) - 2.2);
+    const crossing = v.velocity.x * q.tz - v.velocity.z * q.tx; // lateral rate
+    steer -= clamp(overshoot * 0.022 + crossing * 0.02, -0.22, 0.22);
 
     // A little input noise so the field does not look robotic.
     this.noisePhase += dt;
-    steer += Math.sin(this.noisePhase * 1.7) * (1 - this.skill) * 0.035;
+    steer += Math.sin(this.noisePhase * 1.7) * (1 - this.skill) * 0.02;
 
-    this.controls.steer = clamp(steer, -1, 1);
+    // Rate-limit the driver's hands: no human snaps from lock to lock in one
+    // simulation step, and neither should this.
+    const maxRate = lerp(2.2, 4.2, clamp(1 - speed / 70, 0, 1));
+    this.controls.steer = approachTo(this.controls.steer, clamp(steer, -1, 1), maxRate * dt);
 
     /* -- speed target ------------------------------------------------------ */
     const targetSpeed = this.#speedTarget(s, speed);
     const error = targetSpeed - speed;
 
-    if (error > 0) {
-      this.controls.throttle = clamp(error * 0.55, 0, 1);
+    // A dead band around the target stops the driver pumping the pedals, and
+    // brake pressure is eased in rather than stamped on.
+    if (error > 0.5) {
+      this.controls.throttle = clamp(error * 0.35, 0, 1);
       this.controls.brake = 0;
-    } else {
+    } else if (error < -0.8) {
       this.controls.throttle = 0;
-      this.controls.brake = clamp(-error * 0.34, 0, 1);
+      this.controls.brake = clamp((-error - 0.8) * 0.22, 0, 1);
+    } else {
+      this.controls.throttle = clamp(this.controls.throttle * 0.9, 0, 0.35);
+      this.controls.brake = 0;
     }
 
     // Do not ask for full throttle while the car is still sideways.
@@ -125,9 +151,11 @@ export class Driver {
     const track = this.track;
     const v = this.vehicle;
 
-    // Grip the driver is willing to use, in m/s².
-    const lateralG = lerp(9.4, 13.2, this.skill);
-    const brakingG = lerp(9.0, 13.6, this.skill);
+    // Grip the driver is willing to use, in m/s². Well short of the 13-14 m/s²
+    // the car can actually produce: a driver that plans to use every last
+    // newton arrives at the apex with nothing left for mid-corner corrections.
+    const lateralG = lerp(7.6, 10.4, this.skill);
+    const brakingG = lerp(7.4, 10.2, this.skill);
 
     let best = 130;
     // Scan ahead as far as we could brake from the current speed.
@@ -186,28 +214,46 @@ export class Driver {
     return clamp(offset, -limit, limit);
   }
 
-  /** Reverse out of trouble, then rejoin. */
+  /**
+   * Gets a stranded car going again.
+   *
+   * Most of the time the car is simply off the road facing the right way, and
+   * all it needs is to drive back on. Reversing is reserved for actually being
+   * pointed at a barrier. If neither works for long enough, the driver gives
+   * up and rejoins at the racing line — the same thing the player's R key
+   * does, and the only way to guarantee the field keeps circulating.
+   */
   #recover(dt, q, alongTrack) {
     const v = this.vehicle;
-    this.recoverTimer -= dt;
+    this.recoverTimer -= dt * 0.8;
+    this.stuckFor = (this.stuckFor ?? 0) + (v.speed < 2 ? dt : -dt * 2);
+
+    if (this.stuckFor > 7) {
+      v.respawn();
+      this.stuckFor = 0;
+      this.recoverTimer = 0;
+      this.lineOffset = 0;
+      v.drivetrain.shiftTo(1);
+      return this.controls;
+    }
 
     const wrongWay = alongTrack < 0.15;
-    if (wrongWay || Math.abs(q.lateral) > q.width * 0.5) {
-      // Reverse away from the barrier, steering to point back down the road.
-      const steer = clamp(q.lateral * 0.16, -1, 1) * (v.forwardSpeed < -0.4 ? 1 : -1);
-      this.controls.throttle = 0;
-      this.controls.brake = v.forwardSpeed > 0.6 ? 1 : 0;
-      this.controls.steer = steer;
-      this.controls.handbrake = 0;
-      if (v.forwardSpeed <= 0.6) {
-        v.drivetrain.shiftTo(-1);
-        this.controls.throttle = 0.45;
-      }
-    } else {
-      this.controls.throttle = 0.4;
+    const towardLine = clamp(-q.lateral * 0.09, -1, 1);
+
+    if (wrongWay && v.speed < 6) {
+      // Pointing the wrong way and slow: back up, steering to swing the nose
+      // round toward the direction of travel.
+      v.drivetrain.shiftTo(-1);
+      this.controls.throttle = 0.5;
       this.controls.brake = 0;
-      this.controls.steer = clamp(-q.lateral * 0.12, -1, 1);
+      this.controls.steer = -towardLine;
+    } else {
+      if (v.drivetrain.gear < 0) v.drivetrain.shiftTo(1);
+      this.controls.throttle = 0.42;
+      this.controls.brake = 0;
+      this.controls.steer = clamp(towardLine + (wrongWay ? Math.sign(towardLine || 1) * 0.6 : 0), -1, 1);
     }
+    this.controls.handbrake = 0;
 
     if (this.recoverTimer <= 0 && v.drivetrain.gear < 0) v.drivetrain.shiftTo(1);
     return this.controls;

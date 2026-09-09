@@ -47,6 +47,7 @@ export class LapTimer {
     this.lastSectors = [null, null, null];
     this.laps = [];
     this.invalid = false;
+    this.offTrackTime = 0;
     this.started = false;
     // Best-lap reference samples, for the live delta.
     this.bestTrace = null;
@@ -57,10 +58,14 @@ export class LapTimer {
   /**
    * @param {number} dt
    * @param {number} s arc-length position of the car on the circuit
-   * @param {boolean} offTrack whether the car currently has wheels off
+   * @param {boolean} offTrack whether the car is currently beyond track limits
    */
   update(dt, s, offTrack) {
     this.time += dt;
+
+    // Track limits are only breached once the car has actually been outside
+    // them — a single frame clipping a kerb exit should not void a lap.
+    this.offTrackTime = offTrack ? (this.offTrackTime ?? 0) + dt : 0;
 
     if (this.lastS === null) {
       this.lastS = s;
@@ -74,7 +79,7 @@ export class LapTimer {
     this.distance += step;
     this.lastS = s;
 
-    if (offTrack) this.invalid = true;
+    if (this.offTrackTime > 0.25) this.invalid = true;
 
     // Live delta against the best lap, sampled every 25 m of track.
     const bucket = Math.floor(wrap(s, this.track.length) / 25);

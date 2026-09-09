@@ -1,7 +1,22 @@
+#!/usr/bin/env node
+/**
+ * Drives a real browser through a session and saves screenshots.
+ *
+ * Used to verify that a build actually renders — a racing game is not
+ * something you can check by reading the diff. Expects a preview server to be
+ * running:
+ *
+ *   npm run build && npm run preview
+ *   node tools/screenshot.mjs ./shots [http://127.0.0.1:4173/]
+ *
+ * Set CHROMIUM_PATH if Playwright's bundled browser is not installed.
+ */
+
 import { chromium } from 'playwright';
-const P = process.argv[2] || '/tmp';
+const P = process.argv[2] || './shots';
+const URL = process.argv[3] || 'http://127.0.0.1:4173/';
 const browser = await chromium.launch({
-  executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  executablePath: process.env.CHROMIUM_PATH || undefined,
   args: ['--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader','--no-sandbox','--disable-dev-shm-usage'],
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -14,6 +29,10 @@ page.on('requestfailed', r => logs.push(`[fail] ${r.url().slice(-70)}`));
 await page.goto('http://127.0.0.1:4173/', { waitUntil: 'load', timeout: 60000 });
 await page.waitForTimeout(1000);
 await page.screenshot({ path: `${P}/01-menu.png` });
+// Optional: pass MODE=race to exercise the AI field.
+if (process.env.MODE === 'race') {
+  await page.getByRole('button', { name: /Race/ }).click();
+}
 await page.locator('[data-start]').click();
 await page.waitForSelector('#hud:not(.hidden)', { timeout: 240000 });
 await page.waitForTimeout(2500);

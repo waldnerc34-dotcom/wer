@@ -1,7 +1,7 @@
-import { Track } from './src/track/Track.js';
-import { straight, arc } from './src/track/Layout.js';
-import { Vehicle, CARS } from './src/physics/Vehicle.js';
-import { Drivetrain } from './src/physics/Drivetrain.js';
+import { Track } from '../src/track/Track.js';
+import { straight, arc } from '../src/track/Layout.js';
+import { Vehicle, CARS } from '../src/physics/Vehicle.js';
+import { Drivetrain } from '../src/physics/Drivetrain.js';
 import * as THREE from 'three';
 
 // Proving ground: 4 km straights so acceleration and braking runs never

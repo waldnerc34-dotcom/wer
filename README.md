@@ -82,8 +82,10 @@ The simulation runs at a fixed 240 Hz, sub-stepped from the render frame.
 
 ### Measured behaviour
 
-`node tests/physics.test.mjs` drives both cars on a synthetic proving ground —
-4 km straights and a 120 m skidpad — and reports:
+`npm test` runs two headless suites — no renderer, so they work in CI.
+
+`tests/physics.test.mjs` drives both cars on a synthetic proving ground — 4 km
+straights and a 120 m skidpad — and reports:
 
 ```
 === Rosso 458 — 1440 kg, 597 hp, RWD ===
@@ -94,11 +96,44 @@ The simulation runs at a fixed 240 Hz, sub-stepped from the render frame.
   skidpad peak 1.36 g lateral @ 148 km/h (120 m radius)
 ```
 
+`tests/ai.test.mjs` sends an AI driver round both circuits for two laps and
+asserts it completes them, stays inside track limits, never gets stuck and
+posts consistent times:
+
+```
+=== Apex International — 4.42 km ===
+  laps 1:43.442  1:42.117
+  best 1:42.117 · avg 156 km/h · top 241 km/h
+  off-track 0.0 s · stationary 1.1 s
+```
+
 Static corner loads sum to the car's weight at the authored 42% front bias,
 top speed and braking distance land where a real 458 does, and lateral grip
 climbs with speed as downforce arrives. Standing-start acceleration is about a
 second off a real launch-controlled car — the clutch model gives up that time
 pulling away, which is the one number here I would still call approximate.
+
+---
+
+## The AI
+
+Opponents drive the same physics as the player — no rails, no scripted speeds.
+Three parts:
+
+- **Steering** is pure pursuit against a point on the racing line, roughly half
+  a second of travel ahead, plus counter-steer proportional to the car's own
+  slip angle so it catches slides instead of spinning.
+- **Speed** comes from scanning the racing line's curvature as far ahead as the
+  car could brake from its current speed, taking the lowest limit it finds and
+  working backwards. The grip budget it plans against is deliberately short of
+  what the car can actually produce — a driver who plans to use every last
+  newton arrives at the apex with nothing left for corrections.
+- **Avoidance** offsets the line when it finds a car alongside, and a recovery
+  behaviour backs out of gravel, with a rejoin as a last resort so the field
+  always keeps circulating.
+
+`skill` (0…1) scales the grip it will use, how far ahead it looks and how tidy
+its inputs are, which gives a grid a natural spread of pace.
 
 ---
 

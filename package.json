@@ -3,13 +3,17 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "APEX — a physically-based 3D racing simulator built on three.js",
+  "description": "APEX \u2014 a physically-based 3D racing simulator built on three.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host",
     "assets": "node scripts/fetch-assets.mjs",
-    "assets:optimize": "node scripts/optimize-assets.mjs"
+    "assets:optimize": "node scripts/optimize-assets.mjs",
+    "test": "node tests/physics.test.mjs && node tests/ai.test.mjs",
+    "test:physics": "node tests/physics.test.mjs",
+    "test:ai": "node tests/ai.test.mjs",
+    "shots": "node tools/screenshot.mjs ./shots"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",

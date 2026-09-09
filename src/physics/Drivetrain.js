@@ -24,6 +24,7 @@ export class Drivetrain {
     this.torqueSlope = 0;
     this.limiterCut = 0;
     this.autoShift = true;
+    this.holdReverse = false;
     this.lastShiftDirection = 0;
   }
 
@@ -148,8 +149,10 @@ export class Drivetrain {
     if (this.shiftTimer > 0) return;
     const spec = this.spec;
 
-    // Pull away and reverse handling.
-    if (this.gear <= 0 && throttle > 0.02 && speed > -0.4) {
+    // Pull away — but never override a reverse the driver asked for, or a
+    // car trying to back out of a gravel trap would be shifted into first on
+    // the very next step.
+    if (this.gear <= 0 && !this.holdReverse && throttle > 0.02 && speed > -0.4) {
       this.shiftTo(1);
       return;
     }
@@ -177,6 +180,7 @@ export class Drivetrain {
     const clamped = clamp(gear, -1, this.topGear);
     if (clamped === this.gear) return;
     this.lastShiftDirection = Math.sign(clamped - this.gear);
+    this.holdReverse = clamped < 0;
     this.gear = clamped;
     this.shiftTimer = this.spec.shiftTime;
     this.clutch = 0;

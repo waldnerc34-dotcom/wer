@@ -35,8 +35,8 @@ export class Menu {
       <h1 class="wordmark">APEX</h1>
       <p class="tagline">
         A physically-based racing simulator. Pacejka tyre model, raycast suspension,
-        a limited-slip differential and real aerodynamics — driving licensed supercar
-        models under captured HDRI lighting.
+        a limited-slip differential and real aerodynamics — driving downloaded
+        supercar models under captured HDRI lighting.
       </p>
       <div class="field" data-field="car"><label>CAR</label><div class="choices"></div></div>
       <div class="field" data-field="circuit"><label>CIRCUIT</label><div class="choices"></div></div>

@@ -9,6 +9,7 @@ import { TyreEffects } from '../render/Effects.js';
 import { Materials } from '../render/Materials.js';
 import { QUALITY, Renderer } from '../render/Renderer.js';
 import { CIRCUITS } from '../track/Layout.js';
+import { SURFACE } from '../track/Track.js';
 import { Scenery } from '../track/Scenery.js';
 import { Track } from '../track/Track.js';
 import { buildTrack } from '../track/TrackBuilder.js';
@@ -238,7 +239,8 @@ export class Game {
     /* -- timing ----------------------------------------------------------- */
     const q = this.track.query(player.position.x, player.position.z, {});
     this.playerQuery = q;
-    const offTrack = player.telemetry.wheelsOnTrack < 3;
+    // The racing definition: all four wheels beyond the kerb.
+    const offTrack = player.wheels.every((w) => w.surface > SURFACE.KERB);
     this.timer.update(dt, q.s, offTrack);
 
     /* -- visuals ---------------------------------------------------------- */
