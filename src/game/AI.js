@@ -82,10 +82,11 @@ export class Driver {
     const distance = Math.max(_v.length(), 0.5);
     _v.normalize();
 
-    // Signed angle between where we point and where we want to go.
+    // Signed angle between where we point and where we want to go, positive
+    // when the target is to the car's right (−X of its heading).
     const cross = _fwd.x * _v.z - _fwd.z * _v.x;
     const dot = clamp(_fwd.x * _v.x + _fwd.z * _v.z, -1, 1);
-    const angle = Math.atan2(-cross, dot);
+    const angle = Math.atan2(cross, dot);
 
     // Pure pursuit: the steer angle that puts the car on an arc through the
     // target point, converted into a normalised steering input.
@@ -104,10 +105,12 @@ export class Driver {
     // Only pull back toward the line once genuinely wide, and damp it with the
     // rate the car is already crossing the track — a proportional-only term
     // here weaves the car down the straights.
+    // Track +lateral is the car's left when travelling forward, so being wide
+    // on the +lateral side calls for right (positive) steer.
     const wide = q.lateral - track.lineOffset[track.indexAt(s)];
     const overshoot = Math.sign(wide) * Math.max(0, Math.abs(wide) - 2.2);
-    const crossing = v.velocity.x * q.tz - v.velocity.z * q.tx; // lateral rate
-    steer -= clamp(overshoot * 0.022 + crossing * 0.02, -0.22, 0.22);
+    const crossing = v.velocity.x * q.tz - v.velocity.z * q.tx; // rate toward +lateral
+    steer += clamp(overshoot * 0.022 + crossing * 0.02, -0.22, 0.22);
 
     // A little input noise so the field does not look robotic.
     this.noisePhase += dt;
@@ -238,7 +241,7 @@ export class Driver {
     }
 
     const wrongWay = alongTrack < 0.15;
-    const towardLine = clamp(-q.lateral * 0.09, -1, 1);
+    const towardLine = clamp(q.lateral * 0.09, -1, 1); // +lateral is left: steer right
 
     if (wrongWay && v.speed < 6) {
       // Pointing the wrong way and slow: back up, steering to swing the nose

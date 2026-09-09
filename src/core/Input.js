@@ -34,6 +34,16 @@ export class Input {
     this.usingGamepad = false;
     this.touch = null;
 
+    // A preference, remembered: some people steer the other way, and tilt
+    // steering on some phones reads gravity with the opposite sign.
+    let inverted = false;
+    try {
+      inverted = localStorage.getItem('apex.invertSteer') === '1';
+    } catch {
+      /* storage unavailable — default */
+    }
+    this.invertSteer = inverted;
+
     this._onDown = (e) => {
       if (e.repeat) return;
       this.keys.add(e.code);
@@ -61,6 +71,15 @@ export class Input {
     this.touch = touch;
   }
 
+  setInvertSteer(on) {
+    this.invertSteer = Boolean(on);
+    try {
+      localStorage.setItem('apex.invertSteer', on ? '1' : '0');
+    } catch {
+      /* fine */
+    }
+  }
+
   /** True on the frame a key goes down. */
   tapped(action) {
     const codes = KEY_MAP[action] ?? [];
@@ -84,11 +103,13 @@ export class Input {
   update(dt, speedKph = 0) {
     const pad = this.#readGamepad();
 
+    const inv = this.invertSteer ? -1 : 1;
+
     if (pad) {
       this.usingGamepad = true;
       this.state.throttle = pad.throttle;
       this.state.brake = pad.brake;
-      this.state.steer = pad.steer;
+      this.state.steer = pad.steer * inv;
       this.state.handbrake = pad.handbrake;
       this.padButtons = pad.buttons;
       return this.state;
@@ -108,14 +129,14 @@ export class Input {
     if (touch?.steering) {
       // Analogue steering from the slider or tilt: follow it closely, but
       // through a short lag so a thumb twitch does not become a snap input.
-      const target = clamp(touch.steer, -1, 1) * clamp(speedScale * 1.7, 0.5, 1);
+      const target = clamp(touch.steer, -1, 1) * inv * clamp(speedScale * 1.7, 0.5, 1);
       this.state.steer = approach(this.state.steer, target, dt * 9);
       return this.state;
     }
 
     // Steering: a driver can wind on lock quickly at parking speeds but only
     // makes small, slow inputs at 250 km/h.
-    const dir = (this.held('right') ? 1 : 0) - (this.held('left') ? 1 : 0);
+    const dir = ((this.held('right') ? 1 : 0) - (this.held('left') ? 1 : 0)) * inv;
     const rate = 3.2 * speedScale + 0.7;
     const centring = 5.4;
 

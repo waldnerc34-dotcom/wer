@@ -20,7 +20,13 @@ export class TouchControls {
   constructor(root, { onCamera, onReset, onPause, onLookBack } = {}) {
     this.root = root;
     this.state = { throttle: 0, brake: 0, steer: 0, handbrake: 0, steering: false };
-    this.tilt = { enabled: false, sign: 1, maxAngle: 22, value: 0, live: false };
+    // iOS reports accelerationIncludingGravity with the opposite sign to the
+    // spec (and to Android). Best-effort default; the invert toggle in the
+    // pause menu is the backstop.
+    const ios =
+      /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    this.tilt = { enabled: false, sign: ios ? -1 : 1, maxAngle: 22, value: 0, live: false };
     this.callbacks = { onCamera, onReset, onPause, onLookBack };
 
     root.innerHTML = TEMPLATE;

@@ -117,9 +117,10 @@ function pause() {
   touch?.setVisible(false);
   menu.showPause({
     state: game.state(),
-    assists: game.player.assists,
+    assists: { ...game.player.assists, invertSteer: game.input.invertSteer },
     onToggleAssist: (key, value) => {
-      game.player.assists[key] = value;
+      if (key === 'invertSteer') game.input.setInvertSteer(value);
+      else game.player.assists[key] = value;
     },
     onResume: resume,
     onRestart: () => {

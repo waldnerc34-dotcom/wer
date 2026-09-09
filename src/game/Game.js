@@ -122,6 +122,7 @@ export class Game {
     // Player.
     const playerModel = await this.assets.instance(carDef.model);
     this.player = new Vehicle(carDef.spec, this.track);
+    this.player.assists.autoReverse = true;
     this.playerRig = new CarRig(playerModel, carDef.spec, this.materials, {
       paint: carDef.paint,
       isPlayer: true,

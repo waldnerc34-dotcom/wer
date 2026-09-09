@@ -42,7 +42,7 @@ const MODELS = [
   // pruning unused vertex attributes and quantisation instead; the modest
   // pass here is kept because it is free.
   { path: 'models/cars/ferrari.glb', texture: 1024, simplify: { ratio: 0.32, error: 0.006 } },
-  { path: 'models/cars/concept.glb', texture: 1024, simplify: { ratio: 0.42, error: 0.0012 } },
+  { path: 'models/cars/concept.glb', texture: 768, simplify: { ratio: 0.42, error: 0.0012 } },
   ...['tree3', 'tree4', 'bush1', 'bush2', 'bush3', 'bush4', 'bush5', 'rocks1', 'rocks2', 'rocks3', 'rocks4'].map(
     (n) => ({ path: `models/scenery/${n}.glb`, texture: 256, simplify: null }),
   ),
@@ -61,8 +61,11 @@ const TEXTURES = [
 // for one that is not embedded.
 const HDRIS = ['hdri/venice_sunset_1k.hdr'];
 
-/** Surface maps at or above this size are halved for the single-file build. */
+/** Surface maps above this size are halved for the single-file build … */
 const TEXTURE_CAP = 512;
+/** … except the road normal, which you look at for the whole lap. 768² is
+ *  85 px per metre at the 9 m tile — sharp — and 350 KB under the 1024². */
+const CAPS = { 'textures/asphalt_normal.webp': 768 };
 
 /* -------------------------------------------------------------- models --- */
 
@@ -161,10 +164,11 @@ console.log('· textures');
 for (const t of TEXTURES) {
   let bytes = await readFile(join(ASSETS, t));
   const meta = await sharp(bytes).metadata();
-  if (meta.width > TEXTURE_CAP) {
+  const cap = CAPS[t] ?? TEXTURE_CAP;
+  if (meta.width > cap) {
     const isNormal = /normal/.test(t);
     bytes = await sharp(bytes)
-      .resize(TEXTURE_CAP, TEXTURE_CAP, { kernel: 'lanczos3' })
+      .resize(cap, cap, { kernel: 'lanczos3' })
       .webp({ quality: isNormal ? 90 : 84, effort: 6 })
       .toBuffer();
   }

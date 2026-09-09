@@ -164,6 +164,7 @@ export class Menu {
       ['abs', 'ABS'],
       ['tractionControl', 'Traction control'],
       ['autoShift', 'Automatic gearbox'],
+      ['invertSteer', 'Invert steering'],
     ];
     for (const [key, label] of toggles) {
       const b = el('button', 'choice');

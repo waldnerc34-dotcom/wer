@@ -52,7 +52,7 @@ function integrate(segments, step = 4) {
         push(width, bank * (i / n), seg.name ?? null);
       }
     } else {
-      // Positive angle turns right (clockwise seen from above).
+      // Positive angle bends toward +X — the driver's left.
       const total = deg(seg.angle);
       const arcLen = Math.abs(total) * seg.radius;
       const n = Math.max(2, Math.round(arcLen / step));
@@ -219,7 +219,7 @@ export const APEX_INTERNATIONAL = {
     arc(115, -62, { width: 13, bank: -3, name: 'T2' }),
     arc(95, 70, { width: 13, bank: 3, name: 'T3 — Esses' }),
     straight(130, { width: 13, rise: -6 }),
-    arc(260, -46, { width: 14, bank: -6, name: 'T4 — Long Left' }),
+    arc(260, -46, { width: 14, bank: -6, name: 'T4 — Long Right' }),
     straight(330, { width: 14, rise: -5 }),
     arc(34, 168, { width: 15, bank: 5, name: 'T5 — Hairpin' }),
     straight(700, { width: 15, rise: 9, name: 'Back Straight' }),

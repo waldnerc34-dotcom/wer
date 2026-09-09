@@ -24,11 +24,12 @@ import { clamp } from '../core/MathUtils.js';
 export const QUALITY = {
   mobile: {
     label: 'Mobile',
-    // Phones ship 3× screens; rendering at native resolution would spend the
-    // whole GPU budget on pixels nobody can see. 0.8 of CSS pixels is the
-    // sweet spot between crispness and frame rate.
-    pixelRatio: 1,
-    renderScale: 0.8,
+    // Phones ship 3× screens. Native resolution would spend the whole GPU
+    // budget on pixels nobody can see, but capping at 1× reads as a smear on
+    // a Retina panel. 2× capped and scaled to 0.75 lands at 1.5 device
+    // pixels per CSS pixel — crisp, at half the cost of native.
+    pixelRatio: 2,
+    renderScale: 0.75,
     shadows: true,
     shadowMapSize: 1024,
     cascades: 2,
@@ -41,7 +42,7 @@ export const QUALITY = {
     // hardware does the anti-aliasing. Mobile GPUs are tile-based, so MSAA
     // there is close to free, while a half-float composer is anything but.
     post: false,
-    anisotropy: 4,
+    anisotropy: 8,
     sceneryDensity: 0.35,
     particles: 220,
     skidSegments: 320,
@@ -49,7 +50,7 @@ export const QUALITY = {
   },
   low: {
     label: 'Performance',
-    pixelRatio: 1,
+    pixelRatio: 1.5,
     shadows: true,
     shadowMapSize: 1024,
     cascades: 2,
@@ -63,7 +64,7 @@ export const QUALITY = {
   },
   medium: {
     label: 'Balanced',
-    pixelRatio: 1,
+    pixelRatio: 1.5,
     shadows: true,
     shadowMapSize: 2048,
     cascades: 3,
@@ -78,7 +79,7 @@ export const QUALITY = {
   },
   high: {
     label: 'Quality',
-    pixelRatio: 1.25,
+    pixelRatio: 2,
     shadows: true,
     shadowMapSize: 4096,
     cascades: 4,
@@ -275,12 +276,12 @@ export class Renderer {
     this.speedBlur = new SpeedBlurEffect();
 
     this.chromatic = new ChromaticAberrationEffect({
-      offset: new THREE.Vector2(0.0006, 0.0006),
+      offset: new THREE.Vector2(0.00022, 0.00022),
       radialModulation: true,
       modulationOffset: 0.4,
     });
 
-    this.vignette = new VignetteEffect({ offset: 0.28, darkness: 0.52 });
+    this.vignette = new VignetteEffect({ offset: 0.3, darkness: 0.4 });
 
     // AgX holds highlights together far better than Reinhard on a scene lit
     // by a real HDRI, and keeps the sky from clipping to white.
@@ -292,7 +293,7 @@ export class Renderer {
     });
 
     this.grain = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: true });
-    this.grain.blendMode.opacity.value = 0.055;
+    this.grain.blendMode.opacity.value = 0.028;
 
     const effects = [];
     if (s.motionBlur) effects.push(this.speedBlur);
@@ -375,7 +376,7 @@ export class Renderer {
    */
   setSpeedBlur(speedKph, focus) {
     if (!this.settings.motionBlur || !this.speedBlur) return;
-    this.speedBlur.strength = clamp((speedKph - 90) / 620, 0, 0.09);
+    this.speedBlur.strength = clamp((speedKph - 120) / 700, 0, 0.05);
     if (focus) this.speedBlur.centre.copy(focus);
   }
 

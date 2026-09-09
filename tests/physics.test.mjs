@@ -37,7 +37,8 @@ function follow(v, trk) {
   const fwd = new THREE.Vector3(0,0,1).applyQuaternion(v.quaternion);
   const head = Math.atan2(t.x,t.z) - Math.atan2(fwd.x,fwd.z);
   const err = Math.atan2(Math.sin(head),Math.cos(head));
-  return Math.max(-1,Math.min(1, err*2.4 - q.lateral*0.05));
+  // heading error is toward +X (left); positive steer is right, so negate
+  return Math.max(-1,Math.min(1, -(err*2.4 - q.lateral*0.05)));
 }
 
 for (const [idx, car] of CARS.entries()) {
@@ -85,7 +86,7 @@ for (const [idx, car] of CARS.entries()) {
     const fwd=new THREE.Vector3(0,0,1).applyQuaternion(veh.quaternion);
     const head=Math.atan2(tan.x,tan.z)-Math.atan2(fwd.x,fwd.z);
     const err=Math.atan2(Math.sin(head),Math.cos(head));
-    c2.steer=Math.max(-1,Math.min(1, err*2.6 - q.lateral*0.11));
+    c2.steer=Math.max(-1,Math.min(1, -(err*2.6 - q.lateral*0.11)));
     targetV = 8 + t*0.5;                       // ramp ~0.6 m/s per second
     const dv = targetV - veh.speed;
     c2.throttle = Math.max(0, Math.min(1, dv*0.45));

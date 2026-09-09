@@ -26,8 +26,10 @@ class Wheel {
     this.driven = axle === 'rear' || spec.drivetrainLayout === 'awd';
 
     const s = axle === 'front' ? spec.front : spec.rear;
+    // Body frame: +Z forward, +Y up — so the car's right is −X, and the left
+    // wheel (side −1) sits at +X.
     this.mount = new THREE.Vector3(
-      (side * s.track) / 2,
+      (-side * s.track) / 2,
       spec.restLength + (s.radius - spec.cogHeight),
       axle === 'front' ? spec.cogToFrontAxle : -spec.cogToRearAxle,
     );
@@ -111,7 +113,18 @@ export class Vehicle {
     this.tcCut = 0;
 
     this.controls = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
-    this.assists = { abs: true, tractionControl: true, stability: false, autoShift: true };
+    this.assists = {
+      abs: true,
+      tractionControl: true,
+      stability: false,
+      autoShift: true,
+      // Holding the brake at a standstill selects reverse; the pedals then
+      // swap so the brake pedal backs the car up and the throttle pedal
+      // brakes, then pulls away forward. Off for the AI, which shifts itself.
+      autoReverse: false,
+    };
+    this.pedals = { throttle: 0, brake: 0 };
+    this.reverseHold = 0;
 
     this.telemetry = {
       speed: 0,
@@ -144,6 +157,7 @@ export class Vehicle {
     this.angularVelocity.set(0, 0, 0);
     this.steerAngle = 0;
     this.damage = 0;
+    this.reverseHold = 0;
     for (const w of this.wheels) w.reset();
     this.drivetrain.reset();
     this.#updateMatrix();
@@ -240,7 +254,8 @@ export class Vehicle {
     const driven = this.wheels.filter((w) => w.driven);
     const avgOmega = driven.reduce((s, w) => s + w.omega, 0) / driven.length;
 
-    let throttle = c.throttle;
+    this.#resolvePedals(h);
+    let throttle = this.pedals.throttle;
     if (this.assists.tractionControl) throttle *= this.#tractionControl(driven);
 
     const shaftTorque = this.drivetrain.update(throttle, avgOmega, h, {
@@ -369,8 +384,9 @@ export class Vehicle {
     this.#addForceAtPoint(forceAcc, torqueAcc, _f.copy(_n).multiplyScalar(Fz), _r);
 
     /* -- tyre ------------------------------------------------------------- */
-    // Wheel heading, flattened into the contact plane.
-    _f.set(Math.sin(w.steer), 0, Math.cos(w.steer)).applyQuaternion(this.quaternion);
+    // Wheel heading, flattened into the contact plane. Positive steer turns
+    // toward the car's right, which is −X in the body frame.
+    _f.set(-Math.sin(w.steer), 0, Math.cos(w.steer)).applyQuaternion(this.quaternion);
     _f.addScaledVector(_n, -_f.dot(_n)).normalize();
     _l.crossVectors(_n, _f).normalize();
 
@@ -405,6 +421,40 @@ export class Vehicle {
     return true;
   }
 
+  /**
+   * Maps the two pedals onto drive and brake, including the automatic's
+   * reverse: brake held for half a second at a standstill selects it, and
+   * throttle from a standstill in reverse selects first again.
+   */
+  #resolvePedals(h) {
+    const c = this.controls;
+    const box = this.drivetrain;
+    this.pedals.throttle = c.throttle;
+    this.pedals.brake = c.brake;
+    if (!this.assists.autoShift || !this.assists.autoReverse) return;
+
+    const v = this.forwardSpeed;
+    if (box.gear < 0) {
+      if (c.throttle > 0.2 && v > -0.8) {
+        box.shiftTo(1);
+        return;
+      }
+      this.pedals.throttle = c.brake;
+      this.pedals.brake = c.throttle;
+      return;
+    }
+    if (v < 0.8 && c.brake > 0.3 && c.throttle < 0.05) {
+      this.reverseHold += h;
+      if (this.reverseHold > 0.45) {
+        box.shiftTo(-1);
+        this.pedals.throttle = c.brake;
+        this.pedals.brake = 0;
+      }
+    } else {
+      this.reverseHold = 0;
+    }
+  }
+
   /** Sends torque to one axle through its limited-slip differential. */
   #driveAxle(left, right, torque) {
     const [tl, tr] = this.drivetrain.splitTorque(torque, left.omega, right.omega);
@@ -415,7 +465,8 @@ export class Vehicle {
   /** Integrates hub rotation from drive, brake and road-reaction torques. */
   #integrateWheel(w, h) {
     const c = this.controls;
-    const brakeInput = w.axle === 'rear' ? Math.max(c.brake, c.handbrake) : c.brake;
+    const brake = this.pedals.brake;
+    const brakeInput = w.axle === 'rear' ? Math.max(brake, c.handbrake) : brake;
 
     let brakeTorque = brakeInput * w.maxBrakeTorque;
     if (this.assists.abs && c.handbrake < 0.5 && w.grounded) {
@@ -611,11 +662,11 @@ export class Vehicle {
     t.speed = this.speed;
 
     _f.set(0, 0, 1).applyQuaternion(this.quaternion);
-    _l.set(1, 0, 0).applyQuaternion(this.quaternion);
+    _l.set(-1, 0, 0).applyQuaternion(this.quaternion); // the car's right
 
     _v.subVectors(this.velocity, this.frameStartVelocity).divideScalar(Math.max(dt, 1e-4));
     t.gForceLong = _v.dot(_f) / GRAVITY;
-    t.gForceLat = _v.dot(_l) / GRAVITY;
+    t.gForceLat = _v.dot(_l) / GRAVITY; // positive in a right-hand corner
 
     const vLong = this.velocity.dot(_f);
     const vLat = this.velocity.dot(_l);

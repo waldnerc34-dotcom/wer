@@ -97,9 +97,11 @@ export class HUD {
     }
     const pad = 12;
     const scale = Math.min((size - pad * 2) / (maxX - minX), (size - pad * 2) / (maxZ - minZ));
-    const ox = (size - (maxX - minX) * scale) / 2 - minX * scale;
+    const ox = (size - (maxX - minX) * scale) / 2;
     const oz = (size - (maxZ - minZ) * scale) / 2 - minZ * scale;
-    this.mapProject = (x, z) => [x * scale + ox, z * scale + oz];
+    // Seen from above with the car's right at −X, screen-right is −X: mirror
+    // the map so a right-hander bends right on it too.
+    this.mapProject = (x, z) => [(maxX - x) * scale + ox, z * scale + oz];
 
     // Bake the outline into an offscreen canvas.
     const base = document.createElement('canvas');

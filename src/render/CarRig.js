@@ -157,8 +157,8 @@ export class CarRig {
         : /rear|_r/i.test(c.object.name)
           ? false
           : p.z > 0;
-      const isLeft = /left|_l|l$|lrim/i.test(c.object.name) ? p.x <= 0 || true : p.x < 0;
-      const key = `${isFront ? 'f' : 'r'}${p.x < 0 ? 'l' : 'r'}`;
+      // The car's left is +X (forward is +Z in a right-handed frame).
+      const key = `${isFront ? 'f' : 'r'}${p.x > 0 ? 'l' : 'r'}`;
       if (slots[key]) continue;
       slots[key] = { object: c.object, position: p.clone() };
     }

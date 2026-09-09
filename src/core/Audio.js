@@ -14,7 +14,7 @@ export class EngineAudio {
   constructor() {
     this.ctx = null;
     this.enabled = false;
-    this.volume = 0.7;
+    this.volume = 0.5;
     this.started = false;
   }
 
@@ -175,7 +175,7 @@ export class EngineAudio {
 
     // The filter opens with revs and throttle: closed and muffled at idle,
     // wide open and hard at 9 000 rpm.
-    const cutoff = lerp(700, 6400, clamp(rpm / dt_.spec.limiterRpm, 0, 1)) * lerp(0.55, 1, load);
+    const cutoff = lerp(700, 5200, clamp(rpm / dt_.spec.limiterRpm, 0, 1)) * lerp(0.55, 1, load);
     this.engineFilter.frequency.setTargetAtTime(cutoff, t, smooth);
 
     // Induction roar.
