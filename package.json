@@ -10,10 +10,11 @@
     "preview": "vite preview --host",
     "assets": "node scripts/fetch-assets.mjs",
     "assets:optimize": "node scripts/optimize-assets.mjs",
-    "test": "node tests/physics.test.mjs && node tests/ai.test.mjs",
+    "test": "node tests/physics.test.mjs && node tests/ai.test.mjs && node tests/effects.test.mjs",
     "test:physics": "node tests/physics.test.mjs",
     "test:ai": "node tests/ai.test.mjs",
-    "shots": "node tools/screenshot.mjs ./shots"
+    "shots": "node tools/screenshot.mjs ./shots",
+    "test:effects": "node tests/effects.test.mjs"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",

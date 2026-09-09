@@ -82,7 +82,7 @@ The simulation runs at a fixed 240 Hz, sub-stepped from the render frame.
 
 ### Measured behaviour
 
-`npm test` runs two headless suites — no renderer, so they work in CI.
+`npm test` runs three headless suites — no renderer, so they work in CI.
 
 `tests/physics.test.mjs` drives both cars on a synthetic proving ground — 4 km
 straights and a 120 m skidpad — and reports:
@@ -106,6 +106,13 @@ posts consistent times:
   best 1:42.117 · avg 156 km/h · top 241 km/h
   off-track 0.0 s · stationary 1.1 s
 ```
+
+`tests/effects.test.mjs` drives the particle system past the end of every
+particle's life with deliberately coarse timesteps and asserts nothing
+non-finite ever reaches the instance buffers. That is not a cosmetic concern: a
+single NaN in the instance colour buffer reaches the HDR render target, bloom
+spreads it across the mip chain, and the whole frame renders black — which is
+exactly what used to happen the first time the tyres smoked.
 
 Static corner loads sum to the car's weight at the authored 42% front bias,
 top speed and braking distance land where a real 458 does, and lateral grip

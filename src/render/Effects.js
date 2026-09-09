@@ -97,7 +97,12 @@ export class ParticleSystem {
       }
 
       this.life[i] -= dt;
-      const t = 1 - this.life[i] / this.maxLife[i]; // 0 new … 1 gone
+      // Age must stay in [0, 1]: a particle whose life goes negative inside
+      // this step would otherwise raise a negative base to a fractional power
+      // below, and the resulting NaN travels through the instance colour
+      // buffer into the HDR target, where bloom spreads it over the whole
+      // frame and the screen goes black.
+      const t = clamp(1 - this.life[i] / this.maxLife[i], 0, 1); // 0 new … 1 gone
 
       // Smoke slows, rises and spreads as it dissipates.
       const dragK = Math.exp(-2.1 * dt);
