@@ -6,6 +6,27 @@ import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js';
 const BASE = `${import.meta.env?.BASE_URL ?? '/'}assets/`;
 
 /**
+ * Single-file builds carry every asset inline as base64 (see
+ * scripts/build-artifact.mjs). When that table is present nothing is ever
+ * fetched: models and HDRIs are parsed straight from memory, and textures
+ * are given to the browser as data: URIs.
+ */
+const EMBEDDED = globalThis.APEX_ASSETS ?? null;
+
+function embeddedOrThrow(path) {
+  const entry = EMBEDDED[path];
+  if (!entry) throw new Error(`Asset "${path}" is not embedded in this build`);
+  return entry;
+}
+
+function bytesOf(base64) {
+  const bin = atob(base64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
+
+/**
  * Loads and caches every runtime asset, reporting aggregate progress so the
  * loading screen can show something honest rather than a fake bar.
  */
@@ -15,11 +36,20 @@ export class Assets {
     this.manager = new THREE.LoadingManager();
 
     this.gltf = new GLTFLoader(this.manager);
-    // The Draco decoder ships with the game rather than being pulled from a
-    // CDN, so the whole thing runs offline and never blocks on a third party.
-    const draco = new DRACOLoader(this.manager);
-    draco.setDecoderPath(`${import.meta.env?.BASE_URL ?? '/'}draco/`);
-    this.gltf.setDRACOLoader(draco);
+    this.embedded = Boolean(EMBEDDED);
+
+    if (this.embedded) {
+      // A sandboxed page cannot fetch, and GLTFLoader's image-bitmap path
+      // fetches. With this global gone it falls back to a plain <img>, which
+      // accepts a data: URI without any network access at all.
+      globalThis.createImageBitmap = undefined;
+    } else {
+      // The Draco decoder ships with the game rather than being pulled from a
+      // CDN, so the whole thing runs offline and never blocks on a third party.
+      const draco = new DRACOLoader(this.manager);
+      draco.setDecoderPath(`${import.meta.env?.BASE_URL ?? '/'}draco/`);
+      this.gltf.setDRACOLoader(draco);
+    }
 
     this.hdr = new HDRLoader(this.manager);
     this.tex = new THREE.TextureLoader(this.manager);
@@ -45,7 +75,11 @@ export class Assets {
 
   async model(path) {
     if (this.models.has(path)) return this.models.get(path);
-    const promise = this.gltf.loadAsync(this.url(path)).then((gltf) => gltf);
+    const promise = this.embedded
+      ? new Promise((resolve, reject) =>
+          this.gltf.parse(bytesOf(embeddedOrThrow(path)), '', resolve, reject),
+        )
+      : this.gltf.loadAsync(this.url(path));
     this.models.set(path, promise);
     return promise;
   }
@@ -68,7 +102,8 @@ export class Assets {
     const key = `${path}|${srgb}|${repeat}`;
     if (this.textures.has(key)) return this.textures.get(key);
 
-    const promise = this.tex.loadAsync(this.url(path)).then((t) => {
+    const src = this.embedded ? embeddedOrThrow(path) : this.url(path);
+    const promise = this.tex.loadAsync(src).then((t) => {
       t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       t.wrapS = THREE.RepeatWrapping;
       t.wrapT = THREE.RepeatWrapping;
@@ -89,13 +124,40 @@ export class Assets {
    */
   async environment(file) {
     if (this.envs.has(file)) return this.envs.get(file);
-    const promise = this.hdr.loadAsync(this.url(`hdri/${file}`)).then((hdr) => {
+    // A single-file build may carry only one sky; any circuit gets it.
+    const embeddedKey = this.embedded
+      ? EMBEDDED[`hdri/${file}`]
+        ? `hdri/${file}`
+        : Object.keys(EMBEDDED).find((k) => k.startsWith('hdri/'))
+      : null;
+    const load = this.embedded
+      ? Promise.resolve(this.#hdrFromMemory(embeddedOrThrow(embeddedKey)))
+      : this.hdr.loadAsync(this.url(`hdri/${file}`));
+    const promise = load.then((hdr) => {
       hdr.mapping = THREE.EquirectangularReflectionMapping;
       const target = this.pmrem.fromEquirectangular(hdr);
       return { envMap: target.texture, background: hdr, target };
     });
     this.envs.set(file, promise);
     return promise;
+  }
+
+  /** What DataTextureLoader.load does after its fetch, minus the fetch. */
+  #hdrFromMemory(base64) {
+    const data = this.hdr.parse(bytesOf(base64));
+    const texture = new THREE.DataTexture(
+      data.data,
+      data.width,
+      data.height,
+      THREE.RGBAFormat,
+      data.type,
+    );
+    texture.flipY = true;
+    texture.generateMipmaps = false;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.needsUpdate = true;
+    return texture;
   }
 
   dispose() {

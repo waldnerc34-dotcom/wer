@@ -17,7 +17,9 @@
     "test:effects": "node tests/effects.test.mjs",
     "assets:fetch": "node scripts/fetch-assets.mjs",
     "assets:textures": "node scripts/gen-textures.mjs && node scripts/compress-textures.mjs",
-    "shots:mobile": "node tools/mobile-check.mjs ./shots"
+    "shots:mobile": "node tools/mobile-check.mjs ./shots",
+    "build:artifact": "node scripts/build-artifact.mjs",
+    "serve:artifact": "node tools/artifact-server.mjs"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",
@@ -32,6 +34,7 @@
     "@gltf-transform/extensions": "^4.2.1",
     "@gltf-transform/functions": "^4.2.1",
     "draco3dgltf": "^1.5.7",
+    "meshoptimizer": "^1.2.0",
     "playwright": "^1.63.0",
     "sharp": "^0.34.4",
     "vite": "^7.1.7"

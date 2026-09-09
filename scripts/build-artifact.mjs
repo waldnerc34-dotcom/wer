@@ -1,0 +1,246 @@
+#!/usr/bin/env node
+/**
+ * Packs the whole game into one self-contained HTML file.
+ *
+ * The target is a sandboxed page that can run scripts but never fetch: no
+ * models, textures or HDRIs from anywhere, no decoder workers, no wasm. So
+ * every asset goes into the page as base64, and the models are re-encoded so
+ * they need no decoder at all — quantised (KHR_mesh_quantization, which
+ * three.js reads natively) instead of Draco, with their textures turned into
+ * data: URIs so the loader never has to create a blob for them either.
+ *
+ *   node scripts/build-artifact.mjs        → artifact/apex.html
+ */
+
+import { execSync } from 'node:child_process';
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { Format, Logger, NodeIO } from '@gltf-transform/core';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { dedup, prune, quantize, simplify, textureCompress, weld } from '@gltf-transform/functions';
+import draco3d from 'draco3dgltf';
+import { MeshoptSimplifier } from 'meshoptimizer';
+import sharp from 'sharp';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ASSETS = join(ROOT, 'public', 'assets');
+const OUT_DIR = join(ROOT, 'artifact');
+const OUT = join(OUT_DIR, 'apex.html');
+
+const LIMIT_MB = 16;
+
+/* ----------------------------------------------------------- inventory --- */
+
+const MODELS = [
+  // Both cars are far denser than a chase camera can show — the Ferrari is
+  // 359k triangles, most of it interior stitching and wheel nuts. Simplified
+  // to ~40% with a tight error bound the silhouettes are unchanged and the
+  // bytes drop by more than half.
+  // The Ferrari is hundreds of small separate parts whose border edges the
+  // simplifier will not collapse, so it needs a looser error bound than the
+  // concept to reach its target at all.
+  { path: 'models/cars/ferrari.glb', texture: 1024, simplify: { ratio: 0.32, error: 0.006 } },
+  { path: 'models/cars/concept.glb', texture: 1024, simplify: { ratio: 0.42, error: 0.0012 } },
+  ...['tree3', 'tree4', 'bush1', 'bush2', 'bush3', 'bush4', 'bush5', 'rocks1', 'rocks2', 'rocks3', 'rocks4'].map(
+    (n) => ({ path: `models/scenery/${n}.glb`, texture: 256, simplify: null }),
+  ),
+];
+
+const TEXTURES = [
+  'asphalt_basecolor', 'asphalt_normal', 'asphalt_roughness',
+  'kerb_basecolor', 'kerb_normal', 'kerb_roughness',
+  'concrete_basecolor', 'concrete_normal', 'concrete_roughness',
+  'grass_basecolor', 'grass_normal',
+  'gravel_basecolor', 'gravel_normal', 'gravel_metalrough',
+  'flake_normal', 'smoke', 'skid', 'tree_canopy',
+].map((n) => `textures/${n}.webp`);
+
+// One sky for both circuits; the loader falls back to it when a circuit asks
+// for one that is not embedded.
+const HDRIS = ['hdri/venice_sunset_1k.hdr'];
+
+/** Surface maps at or above this size are halved for the single-file build. */
+const TEXTURE_CAP = 512;
+
+/* -------------------------------------------------------------- models --- */
+
+const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({
+  'draco3d.decoder': await draco3d.createDecoderModule(),
+});
+await MeshoptSimplifier.ready;
+
+async function packModel({ path, texture, simplify: simp }) {
+  const doc = await io.read(join(ASSETS, path));
+  doc.setLogger(new Logger(Logger.Verbosity.ERROR));
+
+  // The committed models are Draco-compressed. Reading one leaves the
+  // extension attached to the document, and the writer would then insist on
+  // re-encoding — the whole point here is a model that needs no decoder.
+  for (const ext of doc.getRoot().listExtensionsUsed()) {
+    if (ext.extensionName === 'KHR_draco_mesh_compression') ext.dispose();
+  }
+
+  const steps = [
+    dedup({ propertyTypes: ['Accessor', 'Texture', 'Mesh'] }),
+    // keepAttributes: false drops vertex data no material reads — tangents on
+    // a material with no normal map are a quarter of a vertex's bytes.
+    prune({ keepLeaves: true, keepAttributes: false }),
+    weld(),
+  ];
+  if (simp) steps.push(simplify({ simplifier: MeshoptSimplifier, ratio: simp.ratio, error: simp.error }));
+  steps.push(
+    textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [texture, texture], quality: 82 }),
+    quantize({ quantizePosition: 14, quantizeNormal: 8, quantizeTexcoord: 12, quantizeColor: 8 }),
+  );
+  await doc.transform(...steps);
+
+  // Write as separate JSON + resources, then assemble a GLB by hand: the
+  // geometry buffer becomes the binary chunk, and every image becomes a
+  // data: URI in the JSON — so the loader neither fetches nor makes blobs.
+  const { json, resources } = await io.writeJSON(doc, { format: Format.GLTF, basename: 'm' });
+
+  for (const image of json.images ?? []) {
+    const bytes = resources[image.uri];
+    const mime = image.mimeType ?? (image.uri.endsWith('.webp') ? 'image/webp' : 'image/png');
+    image.uri = `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
+    delete image.bufferView;
+  }
+
+  if ((json.buffers ?? []).length !== 1) throw new Error(`${path}: expected one buffer`);
+  const bin = Buffer.from(resources[json.buffers[0].uri]);
+  delete json.buffers[0].uri;
+  json.buffers[0].byteLength = bin.length;
+
+  let tris = 0;
+  for (const m of doc.getRoot().listMeshes()) {
+    for (const p of m.listPrimitives()) tris += (p.getIndices()?.getCount() ?? 0) / 3;
+  }
+  return { glb: glbPack(json, bin), tris: Math.round(tris) };
+}
+
+function glbPack(json, bin) {
+  const pad4 = (n) => (n + 3) & ~3;
+  const jsonBuf = Buffer.from(JSON.stringify(json));
+  const jsonPadded = Buffer.alloc(pad4(jsonBuf.length), 0x20);
+  jsonBuf.copy(jsonPadded);
+  const binPadded = Buffer.alloc(pad4(bin.length), 0);
+  bin.copy(binPadded);
+
+  const total = 12 + 8 + jsonPadded.length + 8 + binPadded.length;
+  const out = Buffer.alloc(total);
+  let o = 0;
+  out.writeUInt32LE(0x46546c67, o); o += 4; // 'glTF'
+  out.writeUInt32LE(2, o); o += 4;
+  out.writeUInt32LE(total, o); o += 4;
+  out.writeUInt32LE(jsonPadded.length, o); o += 4;
+  out.writeUInt32LE(0x4e4f534a, o); o += 4; // 'JSON'
+  jsonPadded.copy(out, o); o += jsonPadded.length;
+  out.writeUInt32LE(binPadded.length, o); o += 4;
+  out.writeUInt32LE(0x004e4942, o); o += 4; // 'BIN\0'
+  binPadded.copy(out, o);
+  return out;
+}
+
+/* ---------------------------------------------------------------- pack --- */
+
+const assets = {};
+const sizes = [];
+const kb = (n) => `${(n / 1024).toFixed(0).padStart(5)} KB`;
+
+console.log('· models');
+for (const m of MODELS) {
+  const { glb, tris } = await packModel(m);
+  assets[m.path] = glb.toString('base64');
+  sizes.push([m.path, glb.length]);
+  console.log(`  ${m.path.padEnd(32)} ${kb(glb.length)}  ${tris.toLocaleString()} tris`);
+}
+
+console.log('· textures');
+for (const t of TEXTURES) {
+  let bytes = await readFile(join(ASSETS, t));
+  const meta = await sharp(bytes).metadata();
+  if (meta.width > TEXTURE_CAP) {
+    const isNormal = /normal/.test(t);
+    bytes = await sharp(bytes)
+      .resize(TEXTURE_CAP, TEXTURE_CAP, { kernel: 'lanczos3' })
+      .webp({ quality: isNormal ? 90 : 84, effort: 6 })
+      .toBuffer();
+  }
+  assets[t] = `data:image/webp;base64,${bytes.toString('base64')}`;
+  sizes.push([t, bytes.length]);
+}
+console.log(`  ${TEXTURES.length} maps, ${kb(sizes.filter(([p]) => p.startsWith('textures/')).reduce((s, [, n]) => s + n, 0))}`);
+
+console.log('· lighting');
+for (const h of HDRIS) {
+  const bytes = await readFile(join(ASSETS, h));
+  assets[h] = bytes.toString('base64');
+  sizes.push([h, bytes.length]);
+  console.log(`  ${h.padEnd(32)} ${kb(bytes.length)}`);
+}
+
+/* --------------------------------------------------------------- build --- */
+
+console.log('· bundling');
+execSync('npx vite build', { cwd: ROOT, env: { ...process.env, ARTIFACT: '1' }, stdio: 'pipe' });
+
+const dist = join(ROOT, 'dist-artifact');
+const html = await readFile(join(dist, 'index.html'), 'utf8');
+
+// Vite also emits the Draco decoder files it finds referenced, and with fixed
+// output names those claim "app.js" before the entry does. The entry is the
+// only megabyte-scale script in the directory, so pick it by size.
+const files = await readdir(dist);
+const scripts = [];
+for (const f of files) {
+  if (f.endsWith('.js')) scripts.push([f, (await stat(join(dist, f))).size]);
+}
+scripts.sort((a, b) => b[1] - a[1]);
+const jsName = scripts[0]?.[0];
+const cssName = files.find((f) => f.endsWith('.css'));
+if (!jsName || !cssName || scripts[0][1] < 500_000) {
+  throw new Error(`entry bundle not found (${scripts.map((x) => x.join(':')).join(', ')})`);
+}
+const js = await readFile(join(dist, jsName), 'utf8');
+const css = await readFile(join(dist, cssName), 'utf8');
+
+// Everything the page shows lives in <body>; the head is rebuilt below.
+const body = html
+  .slice(html.indexOf('<body>') + 6, html.indexOf('</body>'))
+  .replace(/<script[^>]*><\/script>/g, '')
+  .replace(/<noscript>[\s\S]*?<\/noscript>/g, '')
+  .trim();
+
+// An inline module ends at the first "</script>", wherever it appears.
+const safeJs = js.replace(/<\/script/gi, '<\\/script');
+
+const page = [
+  '<title>APEX</title>',
+  '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />',
+  `<style>\n${css}\n</style>`,
+  body,
+  `<script>window.APEX_ASSETS=${JSON.stringify(assets)};</script>`,
+  `<script type="module">\n${safeJs}\n</script>`,
+  '',
+].join('\n');
+
+await mkdir(OUT_DIR, { recursive: true });
+await writeFile(OUT, page);
+
+/* -------------------------------------------------------------- report --- */
+
+const total = Buffer.byteLength(page);
+const assetRaw = sizes.reduce((s, [, n]) => s + n, 0);
+console.log(`
+  code          ${kb(Buffer.byteLength(js) + Buffer.byteLength(css))}
+  assets (raw)  ${kb(assetRaw)}   → as base64 ${kb(Math.round(assetRaw * 4 / 3))}
+  page          ${(total / 1048576).toFixed(2)} MB of ${LIMIT_MB} MB
+
+✔ ${OUT.replace(ROOT + '/', '')}`);
+
+if (total > LIMIT_MB * 1048576) {
+  console.error(`✖ over the ${LIMIT_MB} MB artifact limit`);
+  process.exit(1);
+}

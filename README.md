@@ -25,6 +25,26 @@ npm run dev          # http://localhost:5173
 Assets are committed, so there is nothing else to fetch. `npm run build`
 produces a static `dist/` you can host anywhere.
 
+## As a single file
+
+`npm run build:artifact` packs the entire game — code, both cars, the
+scenery, the surface maps and one sky — into `artifact/apex.html`, a page
+with no network dependencies at all. It is built for hosts that run scripts
+but never let a page fetch: a chat artifact, an email attachment, a USB stick.
+
+To fit that under a 16 MB ceiling without a mesh decoder (decoders need
+workers or wasm, which such hosts may refuse), the packer re-encodes the
+models with KHR_mesh_quantization, which three.js reads natively, simplifies
+both cars to about 40% of their triangles with a tight error bound, halves
+the surface maps to 512², and turns every model texture into a data: URI so
+the loader never fetches or creates a blob. The loader's embedded mode
+(`src/core/Assets.js`) parses models and the HDRI straight from memory.
+
+`npm run serve:artifact` serves that file under a Content-Security-Policy
+stricter than any plausible sandbox — nothing fetchable, no blob:, no
+workers, images only from data: — so a run against it proves the page will
+boot where it is going.
+
 ## On a phone
 
 Open the link above, tap **Go racing**, and turn the phone sideways. The left
