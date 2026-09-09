@@ -1,9 +1,15 @@
-# Builds the game and publishes dist/ to GitHub Pages on every push.
+# Builds the game and publishes dist/ to the gh-pages branch on every push.
 #
-# Pages is enabled by the workflow itself (configure-pages `enablement`), so
-# nothing needs switching on in the repository settings first. The site lands
-# at https://<owner>.github.io/<repo>/ — the build uses relative asset paths,
-# so the sub-path is fine.
+# GitHub enables Pages automatically for a repository the first time a
+# gh-pages branch appears, which is why this deploys through a branch rather
+# than the newer Actions artifact route: that route needs the Pages site to
+# be created through the API first, and the workflow's own token is not
+# allowed to do that. If the site does not come up on its own, the one
+# manual step is Settings → Pages → Source: "Deploy from a branch" →
+# gh-pages / (root).
+#
+# The site lands at https://<owner>.github.io/<repo>/ — the build uses
+# relative asset paths, so the sub-path is fine.
 
 name: Deploy to GitHub Pages
 
@@ -15,16 +21,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,20 +44,12 @@ jobs:
 
       - run: npm run build
 
-      - uses: actions/configure-pages@v5
+      # Each deploy replaces the branch outright (force_orphan) — the built
+      # site is ~17 MB, and there is no reason to keep every build in history.
+      - uses: peaceiris/actions-gh-pages@v4
         with:
-          enablement: true
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: gh-pages
+          force_orphan: true
+          commit_message: 'Deploy ${{ github.sha }}'
