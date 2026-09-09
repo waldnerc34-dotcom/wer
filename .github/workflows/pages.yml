@@ -1,12 +1,16 @@
-# Builds the game and publishes dist/ to the gh-pages branch on every push.
+# Builds the game and publishes it to GitHub Pages on every push.
 #
-# GitHub enables Pages automatically for a repository the first time a
-# gh-pages branch appears, which is why this deploys through a branch rather
-# than the newer Actions artifact route: that route needs the Pages site to
-# be created through the API first, and the workflow's own token is not
-# allowed to do that. If the site does not come up on its own, the one
-# manual step is Settings → Pages → Source: "Deploy from a branch" →
-# gh-pages / (root).
+# Two routes, so that whichever the repository can use works without anyone
+# touching the settings page:
+#
+#  - `pages` publishes dist/ straight to the Pages site through the Actions
+#    route, and switches Pages on for the repository the first time it runs
+#    (configure-pages with `enablement`). GitHub only offers Pages on a
+#    public repository under the free plan, so on a private one this job
+#    fails until the repository is made public — after which the next push,
+#    or a manual run of this workflow, brings the site up on its own.
+#  - `branch` keeps a built copy on the gh-pages branch, for the older
+#    "Deploy from a branch" source.
 #
 # The site lands at https://<owner>.github.io/<repo>/ — the build uses
 # relative asset paths, so the sub-path is fine.
@@ -22,13 +26,15 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build-and-publish:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +50,10 @@ jobs:
 
       - run: npm run build
 
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
       # Each deploy replaces the branch outright (force_orphan) — the built
       # site is ~17 MB, and there is no reason to keep every build in history.
       - uses: peaceiris/actions-gh-pages@v4
@@ -53,3 +63,20 @@ jobs:
           publish_branch: gh-pages
           force_orphan: true
           commit_message: 'Deploy ${{ github.sha }}'
+
+  pages:
+    needs: build
+    runs-on: ubuntu-latest
+    # A private repository on the free plan cannot have a Pages site; the
+    # failure is expected there and must not make the build look broken.
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
