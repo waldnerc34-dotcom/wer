@@ -25,7 +25,9 @@ export class ChaseCamera {
     this.view = 0;
     this.position = new THREE.Vector3();
     this.lookAt = new THREE.Vector3();
-    this.up = new THREE.Vector3(0, 1, 0);
+    this.up = new THREE.Vector3(0, 1, 0); // smoothed, never rolled
+    this.cameraUp = new THREE.Vector3(0, 1, 0); // what the camera is given
+    this.roll = 0;
     this.fov = 58;
     this.shake = 0;
     this.lookBack = false;
@@ -64,6 +66,9 @@ export class ChaseCamera {
       this.position.copy(vehicle.position).add(new THREE.Vector3(0, 12, 0));
     }
     this.lookAt.copy(vehicle.position);
+    this.up.set(0, 1, 0);
+    this.cameraUp.set(0, 1, 0);
+    this.roll = 0;
   }
 
   update(vehicle, dt, impulse = 0) {
@@ -107,17 +112,23 @@ export class ChaseCamera {
     }
     this.lookAt.copy(damp3(this.lookAt, _v2, rig.look, dt));
 
-    // Roll the camera slightly into the corner, and follow the chassis in the
-    // cockpit views so kerbs and camber are felt.
-    const bank = clamp(-t.gForceLat * 0.05, -0.14, 0.14);
+    // Follow the chassis a little in the chase views and almost fully in the
+    // cockpit views, so kerbs and camber are felt.
     _q.copy(vehicle.quaternion);
     const chassisUp = _v.set(0, 1, 0).applyQuaternion(_q);
     const blend = this.mode === 'cockpit' || this.mode === 'bonnet' ? 0.95 : 0.28;
     this.up.copy(damp3(this.up, chassisUp.lerp(WORLD_UP, 1 - blend).normalize(), 8, dt)).normalize();
-    this.up.applyAxisAngle(
-      _v2.copy(this.lookAt).sub(this.position).normalize(),
-      bank,
-    );
+
+    // A touch of lean into the corner — a couple of degrees, no more. It is
+    // applied to a *copy* of the up vector: rolling the stored vector itself
+    // compounds frame after frame (the smoothing starts from the rolled
+    // result), and the whole view slowly turns over while cornering.
+    const chase = this.mode === 'chase' || this.mode === 'close';
+    const lean = chase ? clamp(-t.gForceLat * 0.012, -0.03, 0.03) : 0;
+    this.roll = damp(this.roll, lean, 5, dt);
+    this.cameraUp
+      .copy(this.up)
+      .applyAxisAngle(_v2.copy(this.lookAt).sub(this.position).normalize(), this.roll);
 
     // Camera shake: kerbs, bottoming out, and impacts.
     let rumble = 0;
@@ -163,6 +174,7 @@ export class ChaseCamera {
 
     this.lookAt.copy(damp3(this.lookAt, vehicle.position, 7, dt));
     this.up.set(0, 1, 0);
+    this.cameraUp.set(0, 1, 0);
     const dist = this.position.distanceTo(vehicle.position);
     this.fov = damp(this.fov, clamp(1400 / Math.max(dist, 12), 14, 46), 2.5, dt);
     this.#apply();
@@ -170,7 +182,7 @@ export class ChaseCamera {
 
   #apply() {
     this.camera.position.copy(this.position);
-    this.camera.up.copy(this.up);
+    this.camera.up.copy(this.cameraUp);
     this.camera.lookAt(this.lookAt);
     if (Math.abs(this.camera.fov - this.fov) > 0.01) {
       this.camera.fov = this.fov;
