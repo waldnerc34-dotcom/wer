@@ -147,6 +147,7 @@ export class Game {
       const slot = this.track.gridSlot(i + 1);
       vehicle.reset(slot.position, slot.heading);
       vehicle.assists.stability = true;
+      vehicle.assists.steerLimiter = false; // a computed driver keeps the full rack
 
       const driver = new Driver(vehicle, this.track, {
         skill: field[i].skill,
@@ -391,7 +392,7 @@ export class Game {
       gear: dt.gear,
       throttle: p.controls.throttle,
       brake: p.controls.brake,
-      steer: p.steerAngle / p.spec.maxSteerAngle,
+      steer: p.steerAngle / (p.steerLock || p.spec.maxSteerAngle),
       gLong: p.telemetry.gForceLong,
       gLat: p.telemetry.gForceLat,
       lap: t.lap,

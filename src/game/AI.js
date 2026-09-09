@@ -116,6 +116,12 @@ export class Driver {
     this.noisePhase += dt;
     steer += Math.sin(this.noisePhase * 1.7) * (1 - this.skill) * 0.02;
 
+    // Everything above is in fractions of the rack's full lock. The rack only
+    // offers a speed-dependent share of that, so rescale to what is actually
+    // available — otherwise at speed the car gets a third of the angle the
+    // driver asked for and runs wide.
+    steer *= v.spec.maxSteerAngle / (v.steerLock || v.spec.maxSteerAngle);
+
     // Rate-limit the driver's hands: no human snaps from lock to lock in one
     // simulation step, and neither should this.
     const maxRate = lerp(2.2, 4.2, clamp(1 - speed / 70, 0, 1));

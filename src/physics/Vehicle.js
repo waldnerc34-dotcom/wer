@@ -116,7 +116,11 @@ export class Vehicle {
     this.assists = {
       abs: true,
       tractionControl: true,
-      stability: false,
+      stability: true,
+      // Speed-sensitive lock. A keyboard or a touch slider can only ask for
+      // "full", so full has to mean something the tyres can use. The AI
+      // computes its own angles and keeps the whole rack.
+      steerLimiter: true,
       autoShift: true,
       // Holding the brake at a standstill selects reverse; the pedals then
       // swap so the brake pedal backs the car up and the throttle pedal
@@ -136,6 +140,7 @@ export class Vehicle {
     };
 
     this.steerAngle = 0;
+    this.steerLock = spec.maxSteerAngle;
     this.accumulator = 0;
     this.query = {};
     this.lastVelocity = new THREE.Vector3();
@@ -225,11 +230,19 @@ export class Vehicle {
     const c = this.controls;
 
     /* -- steering rack ----------------------------------------------------- */
-    // Rate-limited so the car cannot be flicked instantaneously, and gently
-    // slowed at speed the way a real rack feels through the ratio.
+    // Full lock at 100 km/h would put the front tyres some 20° past their
+    // peak slip angle: they stop turning the car, and the first touch of
+    // throttle spins the rear. So the available lock is what the tyres can
+    // use at this speed — the angle that produces the car's lateral limit,
+    // plus a margin of slip to provoke and catch a slide — capped at the
+    // rack's mechanical limit for parking. Rate-limited on top, so the car
+    // cannot be flicked instantaneously.
     const speed = this.speed;
-    const speedFactor = clamp(1 - speed / 130, 0.34, 1);
-    const target = c.steer * spec.maxSteerAngle * lerp(1, speedFactor, 0.55);
+    const usable =
+      Math.atan((spec.wheelbase * spec.steerLimitAccel) / Math.max(speed, 3) ** 2) +
+      spec.steerLimitMargin;
+    this.steerLock = this.assists.steerLimiter ? Math.min(spec.maxSteerAngle, usable) : spec.maxSteerAngle;
+    const target = c.steer * this.steerLock;
     this.steerAngle = approach(this.steerAngle, target, spec.steerRate * h);
 
     this.#applyAckermann();
@@ -257,6 +270,7 @@ export class Vehicle {
     this.#resolvePedals(h);
     let throttle = this.pedals.throttle;
     if (this.assists.tractionControl) throttle *= this.#tractionControl(driven);
+    if (this.assists.stability) throttle *= this.#stabilityControl();
 
     const shaftTorque = this.drivetrain.update(throttle, avgOmega, h, {
       speed: this.forwardSpeed,
@@ -552,6 +566,19 @@ export class Vehicle {
     return 1 - this.tcCut;
   }
 
+  /**
+   * Stability control: once the body slip angle passes what the rear tyres
+   * can hold, bleed the throttle so the driver's foot cannot keep the slide
+   * going. Never touches the steering — catching it is still up to you.
+   */
+  #stabilityControl() {
+    const slip = Math.abs(this.telemetry.slipAngle);
+    if (slip < 0.12 || this.speed < 4) return 1;
+    // Gently: snatching the throttle away mid-corner in a mid-engined car is
+    // lift-off oversteer, which is the very thing this is meant to prevent.
+    return clamp(1 - (slip - 0.12) * 1.6, 0.55, 1);
+  }
+
   /* ------------------------------------------------------------------ aero */
 
   #applyAero(forceAcc, torqueAcc) {
@@ -703,7 +730,9 @@ function supercar(overrides) {
     cogHeight: 0.37,
     restLength: 0.19,
     maxTravel: 0.085,
-    maxSteerAngle: 0.58, // ~33°
+    maxSteerAngle: 0.58, // ~33°, the rack's mechanical limit
+    steerLimitAccel: 12, // m/s² of cornering the lock is sized for at speed
+    steerLimitMargin: 0.22, // rad of slip beyond that, to provoke and catch a slide
     steerRate: 3.4, // rad/s at the wheel
     drivetrainLayout: 'rwd',
     dragArea: 0.68,

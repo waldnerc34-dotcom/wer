@@ -163,6 +163,7 @@ export class Menu {
     const toggles = [
       ['abs', 'ABS'],
       ['tractionControl', 'Traction control'],
+      ['stability', 'Stability control'],
       ['autoShift', 'Automatic gearbox'],
       ['invertSteer', 'Invert steering'],
     ];

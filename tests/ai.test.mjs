@@ -33,6 +33,9 @@ for (const circuit of CIRCUITS) {
   const start = track.gridSlot(0);
   vehicle.reset(start.position, start.heading);
 
+  // Same aids the game gives an opponent.
+  vehicle.assists.stability = true;
+  vehicle.assists.steerLimiter = false;
   const driver = new Driver(vehicle, track, { skill: 0.92, name: 'Test' });
   const timer = new LapTimer(track);
 
