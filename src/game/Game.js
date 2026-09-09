@@ -146,8 +146,9 @@ export class Game {
 
       const slot = this.track.gridSlot(i + 1);
       vehicle.reset(slot.position, slot.heading);
-      vehicle.assists.stability = true;
-      vehicle.assists.steerLimiter = false; // a computed driver keeps the full rack
+      // A computed driver keeps the full rack and catches its own slides.
+      vehicle.assists.stability = false;
+      vehicle.assists.steerLimiter = false;
 
       const driver = new Driver(vehicle, this.track, {
         skill: field[i].skill,

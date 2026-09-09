@@ -117,10 +117,13 @@ export class Input {
 
     const touch = this.touch;
 
-    // Pedals: quick to apply, quicker to release.
+    // Pedals. A key is all-or-nothing, so the ramps stand in for a foot: the
+    // throttle comes on over about a quarter of a second and — deliberately —
+    // comes off no faster, because lifting instantly mid-corner is how a
+    // mid-engined car swaps ends.
     const throttleTarget = this.held('throttle') || touch?.state.throttle ? 1 : 0;
     const brakeTarget = this.held('brake') || touch?.state.brake ? 1 : 0;
-    this.state.throttle = approach(this.state.throttle, throttleTarget, dt * (throttleTarget ? 4.5 : 9));
+    this.state.throttle = approach(this.state.throttle, throttleTarget, dt * (throttleTarget ? 4.5 : 4));
     this.state.brake = approach(this.state.brake, brakeTarget, dt * (brakeTarget ? 7 : 12));
     this.state.handbrake = this.held('handbrake') || touch?.state.handbrake ? 1 : 0;
 

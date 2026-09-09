@@ -168,7 +168,7 @@ export class Drivetrain {
     if (this.gear > 1) {
       const nextRatio = spec.gearRatios[this.gear - 2] * spec.finalDrive;
       const projected = this.rpm * (nextRatio / this.ratio);
-      const threshold = spec.downshiftRpm * (brake > 0.15 ? 1.16 : 1);
+      const threshold = spec.downshiftRpm * (brake > 0.15 ? 1.06 : 1);
       if (this.rpm < threshold && projected < spec.limiterRpm * 0.93) {
         this.shiftTo(this.gear - 1);
       }
@@ -238,7 +238,7 @@ export const V8_NA = {
   finalDrive: 4.3,
   shiftTime: 0.075,
   drivelineEfficiency: 0.9,
-  engineBrakeTorque: 62,
+  engineBrakeTorque: 36,
   engineInertia: 0.34,
   clutchCapacity: 780,
   clutchStiffness: 55,
@@ -271,7 +271,7 @@ export const V10_TT = {
   finalDrive: 4.05,
   shiftTime: 0.06,
   drivelineEfficiency: 0.9,
-  engineBrakeTorque: 74,
+  engineBrakeTorque: 42,
   engineInertia: 0.42,
   clutchCapacity: 1150,
   clutchStiffness: 68,

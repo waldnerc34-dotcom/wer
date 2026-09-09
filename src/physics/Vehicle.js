@@ -141,6 +141,8 @@ export class Vehicle {
 
     this.steerAngle = 0;
     this.steerLock = spec.maxSteerAngle;
+    this.effectiveSteer = 0;
+    this.escSteer = 0;
     this.accumulator = 0;
     this.query = {};
     this.lastVelocity = new THREE.Vector3();
@@ -161,6 +163,8 @@ export class Vehicle {
     this.velocity.set(0, 0, 0);
     this.angularVelocity.set(0, 0, 0);
     this.steerAngle = 0;
+    this.effectiveSteer = 0;
+    this.escSteer = 0;
     this.damage = 0;
     this.reverseHold = 0;
     for (const w of this.wheels) w.reset();
@@ -245,6 +249,23 @@ export class Vehicle {
     const target = c.steer * this.steerLock;
     this.steerAngle = approach(this.steerAngle, target, spec.steerRate * h);
 
+    // Stability control's steering half: once the body slips past a dead
+    // band, add lock *into* the slide — the counter-steer a good driver would
+    // apply, at the speed they would apply it. It may exceed the
+    // speed-sensitive lock (that limits what the driver can ask for, not what
+    // it takes to catch the car) but never the rack's mechanical limit.
+    let assist = 0;
+    if (this.assists.stability && speed > 3) {
+      const slip = this.telemetry.slipAngle;
+      const beyond = Math.max(0, Math.abs(slip) - spec.escDeadBand) * Math.sign(slip);
+      const wanted = beyond * spec.escCounterSteer;
+      this.escSteer = approach(this.escSteer, wanted, spec.escSteerRate * h);
+      assist = this.escSteer;
+    } else {
+      this.escSteer = approach(this.escSteer, 0, spec.escSteerRate * h);
+    }
+    this.effectiveSteer = clamp(this.steerAngle + assist, -spec.maxSteerAngle, spec.maxSteerAngle);
+
     this.#applyAckermann();
 
     /* -- forces ------------------------------------------------------------ */
@@ -299,6 +320,9 @@ export class Vehicle {
     /* -- aerodynamics ------------------------------------------------------ */
     this.#applyAero(forceAcc, torqueAcc);
 
+    /* -- stability control: yaw ------------------------------------------- */
+    if (this.assists.stability) this.#yawDamping(torqueAcc);
+
     /* -- integrate --------------------------------------------------------- */
     this.#integrateBody(forceAcc, torqueAcc, h);
     this.#resolveBarriers(h);
@@ -310,7 +334,7 @@ export class Vehicle {
 
   #applyAckermann() {
     const { wheelbase, front } = this.spec;
-    const d = this.steerAngle;
+    const d = this.effectiveSteer;
     if (Math.abs(d) < 1e-4) {
       for (const w of this.wheels) if (w.steered) w.steer = d;
       return;
@@ -560,23 +584,47 @@ export class Vehicle {
   #tractionControl(driven) {
     let worst = 0;
     for (const w of driven) worst = Math.max(worst, w.tyre.kappa);
-    // Aim just past the peak of the longitudinal curve, where grip is highest.
-    const cut = clamp((worst - 0.13) * 2.6, 0, 0.82);
-    this.tcCut = lerp(this.tcCut ?? 0, cut, 0.18);
+    // Aim at the peak of the longitudinal curve. Authority up to a 95% cut:
+    // a system that can only take 18% off does nothing against 600 hp.
+    const cut = clamp((worst - 0.1) * 7, 0, 0.95);
+    // Quick to cut, slower to give the torque back.
+    this.tcCut = lerp(this.tcCut ?? 0, cut, cut > (this.tcCut ?? 0) ? 0.35 : 0.08);
     return 1 - this.tcCut;
   }
 
   /**
-   * Stability control: once the body slip angle passes what the rear tyres
-   * can hold, bleed the throttle so the driver's foot cannot keep the slide
-   * going. Never touches the steering — catching it is still up to you.
+   * Stability control's throttle half: once the body slip angle passes what
+   * the rear tyres can hold, bleed the throttle so the driver's foot cannot
+   * keep the slide going. Gently — snatching it away mid-corner in a
+   * mid-engined car is lift-off oversteer, the very thing this prevents.
    */
   #stabilityControl() {
     const slip = Math.abs(this.telemetry.slipAngle);
-    if (slip < 0.12 || this.speed < 4) return 1;
-    // Gently: snatching the throttle away mid-corner in a mid-engined car is
-    // lift-off oversteer, which is the very thing this is meant to prevent.
-    return clamp(1 - (slip - 0.12) * 1.6, 0.55, 1);
+    if (slip < 0.1 || this.speed < 4) return 1;
+    return clamp(1 - (slip - 0.1) * 2.2, 0.45, 1);
+  }
+
+  /**
+   * Stability control's yaw half. A real system brakes individual wheels to
+   * pull the car's rotation back toward what the steering implies; this
+   * applies the equivalent moment directly. The reference is the kinematic
+   * yaw rate for the current steer and speed, so a car that is rotating
+   * faster than its front wheels are pointed gets damped — and one that is
+   * simply cornering does not.
+   */
+  #yawDamping(torqueAcc) {
+    const spec = this.spec;
+    const v = this.forwardSpeed;
+    if (Math.abs(v) < 3) return;
+
+    _q.copy(this.quaternion).invert();
+    const wb = _v.copy(this.angularVelocity).applyQuaternion(_q);
+    // Positive steer (right) means yaw about −Y in a right-handed Y-up frame.
+    const expected = (-v * Math.tan(this.effectiveSteer)) / spec.wheelbase;
+    const excess = wb.y - expected;
+    const torque = -excess * spec.escYawDamping * spec.inertia.yaw;
+    _f.set(0, torque, 0).applyQuaternion(this.quaternion);
+    torqueAcc.add(_f);
   }
 
   /* ------------------------------------------------------------------ aero */
@@ -734,6 +782,11 @@ function supercar(overrides) {
     steerLimitAccel: 12, // m/s² of cornering the lock is sized for at speed
     steerLimitMargin: 0.22, // rad of slip beyond that, to provoke and catch a slide
     steerRate: 3.4, // rad/s at the wheel
+    // Stability control (ESC).
+    escDeadBand: 0.05, // rad of body slip before it acts (~3°)
+    escCounterSteer: 1.3, // rad of lock per rad of slip beyond that
+    escSteerRate: 7, // rad/s — faster than a driver, as a real system is
+    escYawDamping: 4.2, // 1/s on yaw rate in excess of what the steer implies
     drivetrainLayout: 'rwd',
     dragArea: 0.68,
     downforceFront: 0.34,
