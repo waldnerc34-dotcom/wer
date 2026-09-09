@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { Format, Logger, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { dedup, prune, quantize, simplify, textureCompress, weld } from '@gltf-transform/functions';
+import { decodeRGBE, encodeRGBE, resampleRGB } from './rgbe.mjs';
 import draco3d from 'draco3dgltf';
 import { MeshoptSimplifier } from 'meshoptimizer';
 import sharp from 'sharp';
@@ -61,9 +62,10 @@ const TEXTURES = [
   'flake_normal', 'smoke', 'skid', 'spark', 'tree_canopy',
 ].map((n) => `textures/${n}.webp`);
 
-// One sky for both circuits; the loader falls back to it when a circuit asks
-// for one that is not embedded.
-const HDRIS = ['hdri/venice_sunset_1k.hdr'];
+// One sky for every circuit; the loader falls back to it when a circuit asks
+// for one that is not embedded. It is resampled down: a dome this soft is
+// blurred on screen anyway, and the 1k original is a fifth of the budget.
+const HDRIS = [{ path: 'hdri/venice_sunset_1k.hdr', width: 768 }];
 
 // The recordings the audio engine plays.
 const SOUNDS = ['sounds/engine.mp3', 'sounds/tyres.mp3', 'sounds/crash.mp3'];
@@ -75,7 +77,7 @@ const THUMBS = ['rosso', 'concept', 'porsche', 'urus'].map((id) => `thumbs/${id}
 const TEXTURE_CAP = 512;
 /** … except the road normal, which you look at for the whole lap. 768² is
  *  85 px per metre at the 9 m tile — sharp — and 350 KB under the 1024². */
-const CAPS = { 'textures/asphalt_normal.webp': 768 };
+const CAPS = { 'textures/asphalt_normal.webp': 768, 'textures/flake_normal.webp': 256 };
 
 /* -------------------------------------------------------------- models --- */
 
@@ -241,11 +243,13 @@ for (const t of TEXTURES) {
 console.log(`  ${TEXTURES.length} maps, ${kb(sizes.filter(([p]) => p.startsWith('textures/')).reduce((s, [, n]) => s + n, 0))}`);
 
 console.log('· lighting');
-for (const h of HDRIS) {
-  const bytes = await readFile(join(ASSETS, h));
+for (const { path: h, width } of HDRIS) {
+  let bytes = await readFile(join(ASSETS, h));
+  const sky = decodeRGBE(bytes);
+  if (width < sky.width) bytes = encodeRGBE(resampleRGB(sky, width, Math.round((sky.height * width) / sky.width)));
   assets[h] = bytes.toString('base64');
   sizes.push([h, bytes.length]);
-  console.log(`  ${h.padEnd(32)} ${kb(bytes.length)}`);
+  console.log(`  ${h.padEnd(32)} ${kb(bytes.length)}  ${Math.min(width, sky.width)} px`);
 }
 
 for (const t of THUMBS) {
