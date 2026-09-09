@@ -117,14 +117,20 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const hold = quietly(MANOEUVRES.hold(100));
     const fast = quietly(MANOEUVRES.hold(160));
     const brake = quietly(MANOEUVRES.brake());
+    // A thumb on the touch pad has no ramp: it can ask for full lock in the
+    // time the rack takes to move, and does, often at both ends in a row.
+    const thumb = quietly(MANOEUVRES.flick(160));
+    const slam = quietly(MANOEUVRES.slam());
     console.log(
-      `  tap ${tap.peakLatG.toFixed(2)} g · hold ${hold.peakLatG.toFixed(2)} g, slip ${hold.peakSlipDeg.toFixed(1)}°, swing back ${hold.counterSwingDeg.toFixed(0)}°/s · 160 km/h slip ${fast.peakSlipDeg.toFixed(1)}° · trail braking slip ${brake.peakSlipDeg.toFixed(1)}°`,
+      `  tap ${tap.peakLatG.toFixed(2)} g · hold ${hold.peakLatG.toFixed(2)} g, slip ${hold.peakSlipDeg.toFixed(1)}°, swing back ${hold.counterSwingDeg.toFixed(0)}°/s · 160 km/h slip ${fast.peakSlipDeg.toFixed(1)}° · trail braking slip ${brake.peakSlipDeg.toFixed(1)}° · thumb ${thumb.peakLatG.toFixed(2)} g slip ${thumb.peakSlipDeg.toFixed(1)}°, slammed ${slam.peakSlipDeg.toFixed(1)}°`,
     );
     check('a tap is a nudge, not a lane change', tap.peakLatG < 0.7 && tap.headingDeg < 5, `${tap.peakLatG.toFixed(2)} g, ${tap.headingDeg.toFixed(1)}°`);
     check('a held key corners near the limit', hold.peakLatG > 0.85, `${hold.peakLatG.toFixed(2)} g`);
     check('the rear stays behind the front', hold.peakSlipDeg < 8 && fast.peakSlipDeg < 8, `${hold.peakSlipDeg.toFixed(1)}° / ${fast.peakSlipDeg.toFixed(1)}°`);
     check('a release straightens the car', hold.counterSwingDeg < 8 && fast.counterSwingDeg < 8, `swing back ${hold.counterSwingDeg.toFixed(0)}°/s / ${fast.counterSwingDeg.toFixed(0)}°/s`);
     check('trail braking does not spin it', brake.peakSlipDeg < 14, `${brake.peakSlipDeg.toFixed(1)}°`);
+    check('a thumb can ask for full lock at 160 km/h', thumb.peakLatG > 0.9 && thumb.peakSlipDeg < 8, `${thumb.peakLatG.toFixed(2)} g, ${thumb.peakSlipDeg.toFixed(1)}°`);
+    check('slamming lock both ways does not spin it', slam.peakSlipDeg < 10, `${slam.peakSlipDeg.toFixed(1)}°`);
   }
 
   for (const circuit of CIRCUITS) {

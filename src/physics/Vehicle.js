@@ -836,15 +836,19 @@ function supercar(overrides) {
     restLength: 0.19,
     maxTravel: 0.085,
     maxSteerAngle: 0.58, // ~33°, the rack's mechanical limit
-    steerLimitMargin: 0.09, // rad past the kinematic angle: front slip to the peak, and a little to provoke
-    steerRate: 3.4, // rad/s at the wheel
+    // Rad past the kinematic angle: the front slip it takes to reach the
+    // peak, plus enough to over-drive the fronts and feel them let go. Too
+    // little and the car is on rails and will not rotate; too much and the
+    // driver can ask for a spin at 200 km/h.
+    steerLimitMargin: 0.13,
+    steerRate: 4.2, // rad/s at the wheel
     // Stability control (ESC).
     escDeadBand: 0.1, // rad of body slip before the counter-steer acts (~6°)
     escCounterSteer: 1.1, // rad of lock per rad of slip beyond that
     escSteerRate: 7, // rad/s — faster than a driver, as a real system is
     escYawDamping: 6, // 1/s on yaw rate in excess of the reference
     escUndersteer: 0.0024, // s²/m: understeer gradient of the reference bicycle model
-    escUndersteerGain: 0.12, // share of the damping applied when the car turns less than asked
+    escUndersteerGain: 0.22, // share of the damping applied when the car turns less than asked — a light hand into the corner
     drivetrainLayout: 'rwd',
     dragArea: 0.68,
     downforceFront: 0.34,

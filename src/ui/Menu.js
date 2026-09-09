@@ -42,7 +42,7 @@ export class Menu {
     this.clear();
     const screen = el('div', 'screen start');
 
-    const ghost = el('div', 'ghost');
+    const ghost = el('div', 'backdrop');
     ghost.innerHTML = `<svg class="ghost-track" viewBox="0 0 120 72" preserveAspectRatio="xMidYMid meet"><path d=""/></svg>`;
     screen.append(ghost);
 
@@ -138,7 +138,7 @@ export class Menu {
       picker.querySelector('[data-hint]').textContent = 'Turn your phone sideways · touch or tilt to steer';
       picker.querySelector('[data-field="steering"]').hidden = false;
       this.#choices(picker, 'steering', 'seg', [
-        { id: 'touch', label: 'Touch slider', note: 'Left thumb steers' },
+        { id: 'touch', label: 'Thumb', note: 'Drag anywhere on the left' },
         { id: 'tilt', label: 'Tilt', note: 'Hold the phone like a wheel' },
       ], (v) => (this.selection.steering = v), this.selection.steering);
     }

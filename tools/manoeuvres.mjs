@@ -6,7 +6,12 @@
  * yaw rate, lateral g, body slip and both axles' slip angles every quarter
  * second, then a summary line per manoeuvre.
  *
- *   node tools/manoeuvres.mjs [carId] [tap,hold,lift,brake,exit,noesc,straight]
+ *   node tools/manoeuvres.mjs [carId] [tap,hold,flick,slam,lift,brake,exit,noesc,straight]
+ *
+ * A script returns either keys ({throttle, brake, left, right}), which go
+ * through the keyboard ramps, or an analogue demand ({throttle, brake,
+ * steer}) — a thumb on the touch pad or a stick, which can go to full lock
+ * as fast as the rack will move.
  *
  * This is the tool the aids and the key ramps were tuned against: a tap
  * should be a nudge, a hold should settle at the car's limit without the
@@ -79,8 +84,12 @@ export function run(car, label, kph, script, { every = 0.25, seconds = 4, assist
   let next = 0;
   for (let step = 0; step <= seconds / DT; step++) {
     const t = step * DT;
-    const keys = script(t);
-    v.update(DT, hands.update(keys, DT, v.speedKph));
+    const demand = script(t);
+    const controls = hands.update(demand, DT, v.speedKph);
+    // An analogue source sets the steer itself; the key ramp only shapes
+    // throttle and brake.
+    if (typeof demand.steer === 'number') controls.steer = demand.steer;
+    v.update(DT, controls);
     const r = yawRate(v);
     if (t < 3.3) {
       peakSlip = Math.max(peakSlip, Math.abs(v.telemetry.slipAngle));
@@ -108,6 +117,9 @@ export const MANOEUVRES = {
   exit: () => ['slow corner exit: hold right at 55 km/h, full throttle', 55, (t) => ({ throttle: true, right: t >= 0.3 && t < 3.5 }), { seconds: 4 }],
   noesc: () => ['hold right 1.5 s at 100 km/h, stability OFF', 100, (t) => ({ throttle: true, right: t >= 0.5 && t < 2.0 }), { seconds: 4, assists: { stability: false } }],
   straight: () => ['straight, throttle only, 200 km/h', 200, () => ({ throttle: true }), { seconds: 3, every: 0.5 }],
+  // A thumb on the touch pad, or a stick: straight to full lock, no ramp.
+  flick: (kph) => [`thumb to full lock at ${kph} km/h, throttle held`, kph, (t) => ({ throttle: true, steer: t >= 0.5 && t < 2.0 ? 1 : 0 }), { seconds: 4 }],
+  slam: () => ['thumb slammed full lock and back at 160 km/h', 160, (t) => ({ throttle: true, steer: t >= 0.5 && t < 1.1 ? 1 : t >= 1.1 && t < 1.6 ? -1 : 0 }), { seconds: 4 }],
 };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -116,7 +128,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const want = (k) => which === 'all' || which.split(',').includes(k);
   for (const [name, make] of Object.entries(MANOEUVRES)) {
     if (!want(name)) continue;
-    const speeds = name === 'tap' || name === 'hold' ? [60, 100, 160] : [null];
+    const speeds = name === 'tap' || name === 'hold' || name === 'flick' ? [60, 100, 160] : [null];
     for (const kph of speeds) run(car, ...make(kph));
   }
 }

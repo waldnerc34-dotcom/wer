@@ -3,11 +3,20 @@ import { clamp } from './MathUtils.js';
 /**
  * On-screen controls for phones and tablets.
  *
- * Left thumb: an analogue steering slider — touch anywhere on it and the
- * steer angle follows the finger's offset from the centre, so a tap on the far
- * left is full lock and a small drag is a small correction. Right thumb:
- * brake and throttle pads, with a handbrake above them. A row of small
- * buttons handles camera, rejoin and pause.
+ * Left thumb: steering, as a *relative* pad rather than a slider. Wherever
+ * the thumb lands is straight ahead, and the steer angle follows how far it
+ * has moved from there — so the player never has to find, or watch, a
+ * centre. The whole lower-left quarter of the screen takes the touch, so it
+ * works wherever the thumb happens to sit and whatever the size of the
+ * phone; the wheel at the bottom of it is feedback, not a target.
+ *
+ * Two details make it hold up through a long corner. Winding past full lock
+ * drags the origin along with the thumb, so the travel never runs out and
+ * unwinding starts immediately. And the response is shaped, so the first
+ * third of the travel is fine correction and the far end is the lock.
+ *
+ * Right thumb: brake and throttle pads, with a handbrake above them. A row
+ * of small buttons handles camera, rejoin and pause.
  *
  * Every widget tracks its own pointer id, so steering with one thumb while
  * braking with the other works, and lifting one never releases the other.
@@ -33,10 +42,11 @@ export class TouchControls {
     root.classList.add('touch');
 
     this.steerEl = root.querySelector('[data-steer]');
+    this.trackEl = root.querySelector('[data-track]');
     this.knobEl = root.querySelector('[data-knob]');
     this.wheelEl = root.querySelector('[data-wheel]');
 
-    this.#bindSlider();
+    this.#bindSteering();
     this.#bindPad(root.querySelector('[data-throttle]'), 'throttle');
     this.#bindPad(root.querySelector('[data-brake]'), 'brake');
     this.#bindPad(root.querySelector('[data-handbrake]'), 'handbrake');
@@ -54,16 +64,34 @@ export class TouchControls {
 
   /* ------------------------------------------------------------- steering */
 
-  #bindSlider() {
+  #bindSteering() {
     const el = this.steerEl;
     let pointer = null;
+    let origin = 0;
+
+    // How far the thumb travels for full lock. Sized to the screen so it is
+    // a comfortable thumb sweep on any phone, and never so short that a
+    // twitch is full lock.
+    const travel = () => clamp(window.innerWidth * 0.15, 64, 150);
 
     const apply = (clientX) => {
-      const r = el.getBoundingClientRect();
-      const half = r.width * 0.5 - 22;
-      const x = clientX - (r.left + r.width * 0.5);
-      this.state.steer = clamp(x / half, -1, 1);
-      this.state.steering = true;
+      const full = travel();
+      let raw = (clientX - origin) / full;
+      // Winding past the end takes the origin with it: a long corner cannot
+      // run out of thumb, and unwinding responds at once.
+      if (raw > 1) {
+        origin = clientX - full;
+        raw = 1;
+      } else if (raw < -1) {
+        origin = clientX + full;
+        raw = -1;
+      }
+      // A dead zone for the thumb that never quite holds still, then a
+      // shaped response: fine near the centre, the lock at the end.
+      const dead = 0.06;
+      const size = Math.abs(raw);
+      const shaped = size < dead ? 0 : ((size - dead) / (1 - dead)) ** 1.3;
+      this.state.steer = Math.sign(raw) * shaped;
       this.#drawSteer(this.state.steer);
     };
 
@@ -71,7 +99,12 @@ export class TouchControls {
       if (pointer !== null) return;
       pointer = e.pointerId;
       capture(el, pointer);
-      apply(e.clientX);
+      // Wherever the thumb lands is straight ahead.
+      origin = e.clientX;
+      this.state.steer = 0;
+      this.state.steering = true;
+      this.root.classList.add('steering');
+      this.#drawSteer(0);
       e.preventDefault();
     });
     el.addEventListener('pointermove', (e) => {
@@ -83,6 +116,7 @@ export class TouchControls {
       pointer = null;
       this.state.steer = 0;
       this.state.steering = false;
+      this.root.classList.remove('steering');
       this.#drawSteer(0);
     };
     el.addEventListener('pointerup', release);
@@ -91,8 +125,8 @@ export class TouchControls {
   }
 
   #drawSteer(v) {
-    const r = this.steerEl.getBoundingClientRect();
-    const half = r.width * 0.5 - 22;
+    const r = this.trackEl.getBoundingClientRect();
+    const half = Math.max(20, r.width * 0.5 - 20);
     this.knobEl.style.transform = `translateX(${(v * half).toFixed(1)}px)`;
     this.wheelEl.style.transform = `rotate(${(v * 110).toFixed(1)}deg)`;
   }
@@ -232,7 +266,7 @@ const TEMPLATE = /* html */ `
 </div>
 
 <div class="touch-steer" data-steer>
-  <div class="steer-track">
+  <div class="steer-track" data-track>
     <div class="steer-knob" data-knob>
       <svg viewBox="0 0 40 40" data-wheel aria-hidden="true">
         <circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="3.5"/>
@@ -240,6 +274,7 @@ const TEMPLATE = /* html */ `
         <path d="M20 8v9M9 26l8-4M31 26l-8-4" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
       </svg>
     </div>
+    <span class="steer-hint">DRAG TO STEER</span>
   </div>
 </div>
 
