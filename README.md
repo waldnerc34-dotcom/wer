@@ -98,9 +98,11 @@ and the **pacing arrows**.
 
 ### Pacing arrows
 
-Chevrons are laid along the racing line for the whole lap, coloured by what
-you should be doing there: **green** — accelerate, **yellow** — ease off and
-hold your speed, **red** — brake. They come from an ideal speed profile
+Chevrons are laid along the racing line for the whole lap, each pointing
+the way the car should travel, coloured by what you should be doing there:
+**green** — accelerate, **yellow** — ease off and hold your speed, **red** —
+brake. Follow them and you are on the line: wide into the corner, across the
+apex kerb, wide out. They come from an ideal speed profile
 (`src/track/Pacing.js`): the cornering limit from the line's curvature and
 camber, a backward pass that pulls speed down ahead of every corner at
 whatever braking the friction circle and the grade leave, and a forward pass
@@ -263,7 +265,13 @@ Three parts:
 
 - **Steering** is pure pursuit against a point on the racing line, roughly half
   a second of travel ahead, plus counter-steer proportional to the car's own
-  slip angle so it catches slides instead of spinning.
+  slip angle so it catches slides instead of spinning. The pursuit's lateral
+  demand is bounded by the grip the driver budgets: geometry alone would ask
+  for a degree or two of lock when the line crosses the road at 200 km/h,
+  which the tyres do not have. Each driver follows the line pulled slightly
+  toward the centre by skill — the full line runs 1.6 m from the edge, closer
+  than a driver who tracks it with any error can afford — and plans its speed
+  from the curvature of that line, not the centreline's.
 - **Speed** comes from the same whole-lap profile that paints the arrows,
   built for the grip this driver is willing to use: the cornering limit, then
   a backward braking pass that respects the friction circle — braking *into* a
@@ -295,11 +303,18 @@ survive, which is what makes a circuit learnable.
 
 From that centreline, `Track.js` builds:
 
-- A **racing line**, by constrained Laplacian relaxation inside the track
-  corridor. Repeatedly pulling each point toward the midpoint of its neighbours
-  straightens the path; clamping to the usable width keeps it on the road. What
-  falls out approximates the minimum-curvature line, and both the AI and the
-  rubbered-in visual line follow it.
+- A **racing line**: the minimum-curvature path through the corridor, then
+  nudged for lap time. The line's lateral offset is described by control
+  points every 15 m; its curvature is linear in those offsets, so minimising
+  the summed squared curvature with the track edges as box constraints is a
+  quadratic problem, solved by an active-set method (solve unconstrained, pin
+  whatever left the road at the edge it crossed, re-solve, release what the
+  gradient wants back inside). What falls out is the classic line — wide on
+  entry, clipping the apex, wide on exit, straight across the road between
+  corners that face the same way. A second, time-boxed pass then tries moving
+  each control point near a corner and keeps what the pacing model says is
+  quicker round the lap, which is where late apexes onto straights come
+  from. The AI, the arrows and the rubber baked into the road all follow it.
 - A **uniform spatial hash** so the physics can ask "what is under this point?"
   in constant time. There are no mesh raycasts in the hot loop — surface
   height, normal, banking and material are all answered analytically.
@@ -322,9 +337,9 @@ Five circuits:
 - **Costa Brava Sprint** — 2.4 km, faster and more flowing.
 - **Silverton Grand Prix** — 3.9 km of wide, fast, modern circuit: long
   straights into big stops and a flat-out sweeper sequence.
-- **Col de l'Aigle** — 3.7 km of narrow mountain road: three hairpins on the
-  climb, two of them off-camber, then a fast descent with a downhill braking
-  zone that punishes trail-braking.
+- **Col de l'Aigle** — 3.2 km of narrow mountain road: a switchback climb,
+  a balcony and a col across the top, then a fast descent with a downhill
+  braking zone that punishes trail-braking.
 - **Delta Speedbowl** — 3.2 km, two banked ovals joined by an infield.
 
 ---
@@ -402,7 +417,7 @@ src/
   ui/         HUD and menus
 scripts/      pinned asset manifest, fetcher, texture authoring, compression
 tests/        physics, AI, effects, controls, camera, pacing and handling harnesses
-tools/        browser screenshot / emulated-phone checks
+tools/        browser screenshot / emulated-phone checks, racing-line maps
 ```
 
 ## Credits

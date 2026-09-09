@@ -34,10 +34,17 @@ export class Pacing {
     this.compute();
   }
 
-  compute() {
+  /**
+   * @param {Float32Array} [lineCurvature] curvature of the line to evaluate;
+   *        defaults to the track's racing line
+   */
+  compute(lineCurvature = this.track.lineCurvature, lineDs = this.track.lineDs) {
     const { track, car } = this;
     const n = track.count;
-    const ds = track.spacing;
+    // Distance the line covers per sample: more than the centreline's on the
+    // outside of a corner, less on the inside.
+    const dsAt = (i) => (lineDs ? lineDs[i] : track.spacing);
+    this.lineDs = lineDs;
     const grip = track.grip(0);
     const v = this.speed;
     const G = 9.81;
@@ -53,7 +60,7 @@ export class Pacing {
     for (let i = 0; i < n; i++) {
       const y0 = track.pos[i * 3 + 1];
       const y1 = track.pos[wrap(i + 1, n) * 3 + 1];
-      this.grade[i] = (y1 - y0) / ds;
+      this.grade[i] = (y1 - y0) / track.spacing;
       // Positive bank lowers the +lateral side; positive curvature turns
       // toward +lateral. Their product is positive when the inside is lower.
       this.camber[i] = Math.sin(track.bank[i]) * Math.sign(track.curvature[i] || 0);
@@ -61,7 +68,7 @@ export class Pacing {
 
     // Cornering limit. Downforce lifts it at speed, so iterate once.
     for (let i = 0; i < n; i++) {
-      const k = Math.abs(track.lineCurvature[i]);
+      const k = Math.abs(lineCurvature[i]);
       const latMax = Math.max(car.lateralG * grip * 0.6, car.lateralG * grip + G * this.camber[i]);
       this.latMax[i] = latMax;
       let vc = car.topSpeed;
@@ -77,7 +84,7 @@ export class Pacing {
     // taken its share: the friction circle. Never quite zero — even at the
     // limit a driver can bleed a little speed.
     const longitudinalShare = (i) => {
-      const k = Math.abs(track.lineCurvature[i]);
+      const k = Math.abs(lineCurvature[i]);
       const lateral = (v[i] * v[i] * k) / this.latMax[i];
       return Math.sqrt(Math.max(0, 1 - lateral * lateral)) * 0.85 + 0.15;
     };
@@ -91,7 +98,7 @@ export class Pacing {
         const i = wrap(j, n);
         const next = wrap(j + 1, n);
         const aLong = Math.max(0.5, brake * longitudinalShare(next) + G * this.grade[next]);
-        v[i] = Math.min(v[i], Math.sqrt(v[next] * v[next] + 2 * aLong * ds));
+        v[i] = Math.min(v[i], Math.sqrt(v[next] * v[next] + 2 * aLong * dsAt(i)));
       }
     }
 
@@ -108,18 +115,25 @@ export class Pacing {
             0.3,
             Math.min(traction, kw / (car.mass * Math.max(v[prev], 8))) - G * this.grade[prev],
           );
-          v[i] = Math.min(v[i], Math.sqrt(v[prev] * v[prev] + 2 * accel * ds));
+          v[i] = Math.min(v[i], Math.sqrt(v[prev] * v[prev] + 2 * accel * dsAt(prev)));
         }
       }
     }
 
-    // Phase from the implied acceleration. Braking is unambiguous; between
-    // holding through a corner and squeezing back on there is a band where
-    // "hold" is the honest instruction.
+    // Phase from the implied acceleration, read off a lightly smoothed copy
+    // of the profile over ±5 m so a ripple in the cornering limit does not
+    // read as braking. Braking is unambiguous; between holding through a
+    // corner and squeezing back on there is a band where "hold" is the
+    // honest instruction.
+    const vs = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      const next = wrap(i + 1, n);
-      const a = (v[next] * v[next] - v[i] * v[i]) / (2 * ds);
-      const k = Math.abs(track.lineCurvature[i]);
+      vs[i] = (v[wrap(i - 2, n)] + v[wrap(i - 1, n)] + v[i] + v[wrap(i + 1, n)] + v[wrap(i + 2, n)]) / 5;
+    }
+    for (let i = 0; i < n; i++) {
+      const prev = wrap(i - 2, n);
+      const next = wrap(i + 2, n);
+      const a = (vs[next] * vs[next] - vs[prev] * vs[prev]) / (8 * dsAt(i));
+      const k = Math.abs(lineCurvature[i]);
       const lateral = (v[i] * v[i] * k) / this.latMax[i]; // share of the limit
       if (a < -1.4) this.phase[i] = PHASE.BRAKE;
       else if (a > 0.9 && lateral < 0.82) this.phase[i] = PHASE.ACCELERATE;
@@ -131,7 +145,7 @@ export class Pacing {
     // brake every few metres. Zones shorter than about 15 m are absorbed
     // into the zone before them, twice over, so what remains reads as
     // instructions rather than noise.
-    const minRun = Math.max(2, Math.round(15 / ds));
+    const minRun = Math.max(2, Math.round(15 / track.spacing));
     for (let pass = 0; pass < 2; pass++) {
       // Start at a zone boundary so the seam does not split a run.
       let origin = 0;
@@ -157,6 +171,14 @@ export class Pacing {
       }
     }
     return this;
+  }
+
+  /** Time to cover the lap at this profile, seconds. */
+  lapTime() {
+    const { count, spacing } = this.track;
+    let t = 0;
+    for (let i = 0; i < count; i++) t += (this.lineDs ? this.lineDs[i] : spacing) / Math.max(this.speed[i], 3);
+    return t;
   }
 
   /** Ideal speed at arc length `s`, m/s. */

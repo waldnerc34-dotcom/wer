@@ -83,11 +83,11 @@ const drive = async (seconds) => page.evaluate((secs) => {
   for (let i = 0; i < Math.round(secs * 60); i++) g.frame();
 }, seconds);
 await page.keyboard.down('KeyW');
-await drive(6);
+await drive(2.5);
 await page.screenshot({ path: `${P}/06-driving.png` });
 await page.keyboard.up('KeyW');
 await page.keyboard.down('KeyS');
-await drive(1.2);
+await drive(0.8);
 await page.screenshot({ path: `${P}/07-braking.png` });
 await page.keyboard.up('KeyS');
 const driven = await page.evaluate(() => {

@@ -34,8 +34,12 @@ export class Driver {
     this.noisePhase = Math.random() * 100;
     this.q = {};
 
+    // How much of the racing line's offset this driver uses (see update).
+    this.lineShare = lerp(0.7, 0.85, this.skill);
+
     // The speed profile this driver plans to, built for the grip they are
-    // willing to use and rebuilt when the weather changes it.
+    // willing to use and the line they actually drive, and rebuilt when the
+    // weather changes the grip.
     this.pacing = null;
     this.pacingWet = -1;
   }
@@ -73,7 +77,15 @@ export class Driver {
     // car can actually follow. Roughly half a second of travel is the classic
     // choice; much further and the car cuts corners and runs wide on exit.
     const lookahead = clamp(7 + speed * lerp(0.34, 0.46, this.skill), 9, 48);
-    track.racingLineAt(s + lookahead, _target);
+    // The racing line runs 1.6 m from the edge; a driver who tracks it with
+    // any error at all needs more room than that, so the AI aims at a line
+    // pulled a little toward the centre — the better the driver, the less.
+    // Above about 150 km/h it stays nearer the centre still: the line's
+    // crossings from one side of the road to the other are lane changes a
+    // pure-pursuit controller takes with far more lock than the tyres have
+    // at that speed, and the road is all but straight there anyway.
+    const share = this.lineShare * (1 - 0.65 * clamp((speed - 40) / 25, 0, 1));
+    track.aiLineAt(s + lookahead, share, _target);
 
     // Offset the line to avoid whoever is alongside.
     this.targetOffset = this.#avoidance(rivals, s, q);
@@ -97,6 +109,7 @@ export class Driver {
     // Pure pursuit: the steer angle that puts the car on an arc through the
     // target point, converted into a normalised steering input.
     const curvature = (2 * Math.sin(angle)) / distance;
+
     let steer = Math.atan(curvature * v.spec.wheelbase) / v.spec.maxSteerAngle;
 
     // Counter-steer *into* a slide. The car's slip angle is positive when its
@@ -113,7 +126,7 @@ export class Driver {
     // here weaves the car down the straights.
     // Track +lateral is the car's left when travelling forward, so being wide
     // on the +lateral side calls for right (positive) steer.
-    const wide = q.lateral - track.lineOffset[track.indexAt(s)];
+    const wide = q.lateral - track.lineOffset[track.indexAt(s)] * share;
     const overshoot = Math.sign(wide) * Math.max(0, Math.abs(wide) - 2.2);
     const crossing = v.velocity.x * q.tz - v.velocity.z * q.tx; // rate toward +lateral
     steer += clamp(overshoot * 0.022 + crossing * 0.02, -0.22, 0.22);
@@ -193,11 +206,11 @@ export class Driver {
       const grip = this.vehicle.spec.aiGrip ?? 1;
       const lateralG = lerp(7.6, 10.4, this.skill) * grip;
       const brakingG = lerp(7.4, 10.2, this.skill) * grip;
+      const curvature = track.lineCurvatureFor(this.lineShare);
       if (!this.pacing) {
         this.pacing = new Pacing(track, { lateralG, brakingG, topSpeed: 140, forwardPass: false });
-      } else {
-        this.pacing.compute();
       }
+      this.pacing.compute(curvature);
       this.pacingWet = track.wetness;
     }
 
