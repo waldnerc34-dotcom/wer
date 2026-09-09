@@ -14,20 +14,14 @@ sideways), a tablet or a desktop browser. Every push to this branch builds the
 site and publishes it to the `gh-pages` branch through
 `.github/workflows/pages.yml`.
 
-If that link shows a 404, Pages is not on yet. Two one-time steps, both only
-the repository owner can do:
-
-1. GitHub only offers Pages on **public** repositories under the free plan, so
-   the repository has to be made public first: **Settings → General → Danger
-   Zone → Change visibility → Public**.
-2. Then **Settings → Pages → Source: Deploy from a branch → `gh-pages` /
-   (root)**.
-
-The site appears within a minute and stays up to date from then on — every
-push already rebuilds the `gh-pages` branch. If the repository is to stay
-private, the built `dist/` folder can be dropped onto any static host
-instead (Netlify Drop, Cloudflare Pages, Vercel), which gives the same kind
-of link.
+If that link shows a 404, Pages is not switched on yet — a one-time step
+only the repository owner can do: **Settings → Pages → Build and deployment
+→ Source: GitHub Actions** (or *Deploy from a branch* → `gh-pages` / root;
+the workflow prepares both). The site appears within a minute and stays up
+to date from then on. GitHub only offers Pages on public repositories under
+the free plan, which is why this repository is public; a private copy could
+instead drop the built `dist/` folder onto any static host (Netlify Drop,
+Cloudflare Pages, Vercel) for the same kind of link.
 
 ```bash
 npm install
