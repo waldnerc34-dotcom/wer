@@ -29,7 +29,10 @@ page.on('requestfailed', r => logs.push(`[fail] ${r.url().slice(-70)}`));
 await page.goto('http://127.0.0.1:4173/', { waitUntil: 'load', timeout: 60000 });
 await page.waitForTimeout(1000);
 await page.screenshot({ path: `${P}/01-menu.png` });
-// Optional: pass MODE=race to exercise the AI field.
+// Optional: CAR=concept picks the second car; MODE=race exercises the AI field.
+if (process.env.CAR === 'concept') {
+  await page.getByRole('button', { name: /Khronos/ }).click();
+}
 if (process.env.MODE === 'race') {
   await page.getByRole('button', { name: /Race/ }).click();
 }
@@ -72,7 +75,9 @@ console.log('HUD timing panel:', JSON.stringify(hud));
 const st = await page.evaluate(() => {
   const g = window.APEX.game; const c = {};
   g.scenery.group.children.forEach(x => { const k = x.name.split(':')[0]; c[k] = (c[k]||0) + x.count; });
-  return { scenery: g.scenery.instanceCount, byKind: c };
+  const wheels = g.playerRig.wheels.map((w) => (w ? w.hub.children.length : 0));
+  let tris = 0; g.playerRig.group.traverse((o) => { if (o.isMesh) tris += (o.geometry.index?.count ?? o.geometry.attributes.position.count) / 3; });
+  return { scenery: g.scenery.instanceCount, byKind: c, wheelsBound: wheels, carTriangles: Math.round(tris) };
 });
 console.log('scenery:', JSON.stringify(st));
 console.log('--- issues ---'); console.log([...new Set(logs)].slice(0,15).join('\n') || '(none)');

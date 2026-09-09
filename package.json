@@ -8,13 +8,16 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host",
-    "assets": "node scripts/fetch-assets.mjs",
+    "assets": "node scripts/fetch-assets.mjs && node scripts/gen-textures.mjs && node scripts/compress-textures.mjs && node scripts/optimize-assets.mjs",
     "assets:optimize": "node scripts/optimize-assets.mjs",
     "test": "node tests/physics.test.mjs && node tests/ai.test.mjs && node tests/effects.test.mjs",
     "test:physics": "node tests/physics.test.mjs",
     "test:ai": "node tests/ai.test.mjs",
     "shots": "node tools/screenshot.mjs ./shots",
-    "test:effects": "node tests/effects.test.mjs"
+    "test:effects": "node tests/effects.test.mjs",
+    "assets:fetch": "node scripts/fetch-assets.mjs",
+    "assets:textures": "node scripts/gen-textures.mjs && node scripts/compress-textures.mjs",
+    "shots:mobile": "node tools/mobile-check.mjs ./shots"
   },
   "dependencies": {
     "lil-gui": "^0.21.0",
@@ -28,6 +31,7 @@
     "@gltf-transform/core": "^4.2.1",
     "@gltf-transform/extensions": "^4.2.1",
     "@gltf-transform/functions": "^4.2.1",
+    "draco3dgltf": "^1.5.7",
     "playwright": "^1.63.0",
     "sharp": "^0.34.4",
     "vite": "^7.1.7"

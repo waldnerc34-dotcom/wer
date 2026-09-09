@@ -49,7 +49,7 @@ export class Scenery {
       files.map(async (f) => ({ ...f, scene: await assets.instance(f.path) })),
     );
 
-    const canopy = await assets.texture('textures/tree_canopy.png', { srgb: true });
+    const canopy = await assets.texture('textures/tree_canopy.webp', { srgb: true });
 
     const placements = this.#scatter(loaded);
 

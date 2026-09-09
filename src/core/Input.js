@@ -32,6 +32,7 @@ export class Input {
     this.state = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
     this.raw = { throttle: 0, brake: 0, steer: 0, handbrake: 0 };
     this.usingGamepad = false;
+    this.touch = null;
 
     this._onDown = (e) => {
       if (e.repeat) return;
@@ -53,6 +54,11 @@ export class Input {
       this.gamepadIndex = null;
       this.usingGamepad = false;
     });
+  }
+
+  /** Attaches on-screen controls; their state is merged with the keyboard. */
+  setTouch(touch) {
+    this.touch = touch;
   }
 
   /** True on the frame a key goes down. */
@@ -88,17 +94,28 @@ export class Input {
       return this.state;
     }
 
+    const touch = this.touch;
+
     // Pedals: quick to apply, quicker to release.
-    const throttleTarget = this.held('throttle') ? 1 : 0;
-    const brakeTarget = this.held('brake') ? 1 : 0;
+    const throttleTarget = this.held('throttle') || touch?.state.throttle ? 1 : 0;
+    const brakeTarget = this.held('brake') || touch?.state.brake ? 1 : 0;
     this.state.throttle = approach(this.state.throttle, throttleTarget, dt * (throttleTarget ? 4.5 : 9));
     this.state.brake = approach(this.state.brake, brakeTarget, dt * (brakeTarget ? 7 : 12));
-    this.state.handbrake = this.held('handbrake') ? 1 : 0;
+    this.state.handbrake = this.held('handbrake') || touch?.state.handbrake ? 1 : 0;
+
+    const speedScale = clamp(1 - speedKph / 260, 0.3, 1);
+
+    if (touch?.steering) {
+      // Analogue steering from the slider or tilt: follow it closely, but
+      // through a short lag so a thumb twitch does not become a snap input.
+      const target = clamp(touch.steer, -1, 1) * clamp(speedScale * 1.7, 0.5, 1);
+      this.state.steer = approach(this.state.steer, target, dt * 9);
+      return this.state;
+    }
 
     // Steering: a driver can wind on lock quickly at parking speeds but only
     // makes small, slow inputs at 250 km/h.
     const dir = (this.held('right') ? 1 : 0) - (this.held('left') ? 1 : 0);
-    const speedScale = clamp(1 - speedKph / 260, 0.3, 1);
     const rate = 3.2 * speedScale + 0.7;
     const centring = 5.4;
 

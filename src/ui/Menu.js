@@ -8,14 +8,17 @@ import { formatLap } from '../game/Timing.js';
  * end-of-session results. All plain DOM rendered into one overlay element.
  */
 export class Menu {
-  constructor(root) {
+  constructor(root, { touch = false } = {}) {
     this.root = root;
+    this.touch = touch;
     this.selection = {
       circuitId: CIRCUITS[0].id,
       carId: CARS[0].id,
       mode: 'time-trial',
-      quality: guessQuality(),
-      opponents: 5,
+      quality: guessQuality(touch),
+      // Three AI cars is plenty for a phone's CPU; five on a desktop.
+      opponents: touch ? 3 : 5,
+      steering: 'touch',
     };
   }
 
@@ -42,11 +45,12 @@ export class Menu {
       <div class="field" data-field="circuit"><label>CIRCUIT</label><div class="choices"></div></div>
       <div class="field" data-field="mode"><label>SESSION</label><div class="choices"></div></div>
       <div class="field" data-field="quality"><label>GRAPHICS</label><div class="choices"></div></div>
+      <div class="field" data-field="steering" hidden><label>STEERING</label><div class="choices"></div></div>
       <div class="actions">
         <button class="btn" data-start>Go racing</button>
         <span class="loading-note" data-hint>Keyboard or gamepad · W A S D to drive</span>
       </div>
-      <div class="keys">
+      <div class="keys" data-keys>
         <div><b>W / S</b> throttle · brake</div>
         <div><b>A / D</b> steer</div>
         <div><b>Space</b> handbrake</div>
@@ -81,6 +85,17 @@ export class Menu {
       label: q.label,
       note: qualityNote(id),
     })), (v) => (this.selection.quality = v), this.selection.quality);
+
+    if (this.touch) {
+      // Phones: on-screen controls, and the keyboard legend is just noise.
+      card.querySelector('[data-keys]').hidden = true;
+      card.querySelector('[data-hint]').textContent = 'Turn your phone sideways · touch or tilt to steer';
+      card.querySelector('[data-field="steering"]').hidden = false;
+      this.#choices(card, 'steering', [
+        { id: 'touch', label: 'Touch slider', note: 'Left thumb steers' },
+        { id: 'tilt', label: 'Tilt', note: 'Hold the phone like a wheel' },
+      ], (v) => (this.selection.steering = v), this.selection.steering);
+    }
 
     card.querySelector('[data-start]').addEventListener('click', () => {
       onStart({ ...this.selection });
@@ -205,17 +220,19 @@ function el(tag, className) {
 }
 
 /** Rough guess at what the machine can handle, so first load looks right. */
-function guessQuality() {
+function guessQuality(touch) {
   const mem = navigator.deviceMemory ?? 8;
   const cores = navigator.hardwareConcurrency ?? 8;
-  const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-  if (mobile || mem <= 4 || cores <= 4) return 'low';
+  const mobile = touch || /Android|iPhone|iPad/i.test(navigator.userAgent);
+  if (mobile) return 'mobile';
+  if (mem <= 4 || cores <= 4) return 'low';
   if (mem <= 8 || cores <= 8) return 'medium';
   return 'high';
 }
 
 function qualityNote(id) {
   return {
+    mobile: 'Phones and tablets',
     low: 'No AO, fewer trees',
     medium: 'AO, motion blur, SMAA',
     high: '4K shadows, full scenery',

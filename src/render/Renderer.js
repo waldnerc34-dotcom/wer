@@ -20,8 +20,33 @@ import { GroundedSkybox } from 'three/examples/jsm/objects/GroundedSkybox.js';
 
 import { clamp } from '../core/MathUtils.js';
 
-/** Quality presets, from "runs on a laptop" to "runs on a good GPU". */
+/** Quality presets, from "runs on a phone" to "runs on a good GPU". */
 export const QUALITY = {
+  mobile: {
+    label: 'Mobile',
+    // Phones ship 3× screens; rendering at native resolution would spend the
+    // whole GPU budget on pixels nobody can see. 0.8 of CSS pixels is the
+    // sweet spot between crispness and frame rate.
+    pixelRatio: 1,
+    renderScale: 0.8,
+    shadows: true,
+    shadowMapSize: 1024,
+    cascades: 2,
+    shadowDistance: 140,
+    ao: false,
+    bloom: false,
+    motionBlur: false,
+    smaa: false,
+    // No post chain at all: tone mapping happens in the main pass and the
+    // hardware does the anti-aliasing. Mobile GPUs are tile-based, so MSAA
+    // there is close to free, while a half-float composer is anything but.
+    post: false,
+    anisotropy: 4,
+    sceneryDensity: 0.35,
+    particles: 220,
+    skidSegments: 320,
+    skyResolution: 24,
+  },
   low: {
     label: 'Performance',
     pixelRatio: 1,
@@ -130,24 +155,31 @@ export class Renderer {
     this.settings = { ...QUALITY[quality] };
     this.qualityName = quality;
 
+    this.usePost = this.settings.post !== false;
+
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: false, // SMAA runs in the post chain instead
+      antialias: !this.usePost, // SMAA in the post chain, else hardware MSAA
       powerPreference: 'high-performance',
       stencil: false,
       depth: true,
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.NoToneMapping; // handled in post
+    // With a post chain, tone mapping is the last effect; without one the
+    // main pass does it. AgX either way.
+    this.renderer.toneMapping = this.usePost ? THREE.NoToneMapping : THREE.AgXToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.shadowMap.enabled = this.settings.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, this.settings.pixelRatio));
+    this.renderer.setPixelRatio(
+      Math.min(devicePixelRatio, this.settings.pixelRatio) * (this.settings.renderScale ?? 1),
+    );
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.15, 6000);
 
     this.#buildLighting();
-    this.#buildComposer();
+    if (this.usePost) this.#buildComposer();
 
     this.frameTimes = [];
     this.resize();
@@ -296,7 +328,7 @@ export class Renderer {
     }
 
     if (groundRadius > 0) {
-      this.skybox = new GroundedSkybox(background, groundHeight, groundRadius, 32);
+      this.skybox = new GroundedSkybox(background, groundHeight, groundRadius, this.settings.skyResolution ?? 32);
       this.skybox.name = 'sky';
       this.skybox.renderOrder = -1;
       // The dome sits near the far plane, so scene fog would render it as a
@@ -332,7 +364,7 @@ export class Renderer {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
-    this.composer.setSize(w, h);
+    this.composer?.setSize(w, h);
     this.ao?.setSize(w, h);
     this.csm?.updateFrustums();
   }
@@ -342,19 +374,20 @@ export class Renderer {
    * @param {number} speedKph
    */
   setSpeedBlur(speedKph, focus) {
-    if (!this.settings.motionBlur) return;
+    if (!this.settings.motionBlur || !this.speedBlur) return;
     this.speedBlur.strength = clamp((speedKph - 90) / 620, 0, 0.09);
     if (focus) this.speedBlur.centre.copy(focus);
   }
 
   render(dt) {
     this.csm?.update();
-    this.composer.render(dt);
+    if (this.composer) this.composer.render(dt);
+    else this.renderer.render(this.scene, this.camera);
   }
 
   dispose() {
     this.csm?.dispose();
-    this.composer.dispose();
+    this.composer?.dispose();
     this.renderer.dispose();
   }
 }

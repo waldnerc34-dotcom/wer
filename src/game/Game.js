@@ -100,7 +100,10 @@ export class Game {
     await this.#spawnCars(carDef, mode === 'race' ? opponents : 0);
 
     this.onProgress?.(0.94, 'Final checks');
-    this.effects = new TyreEffects(this.renderer.scene, this.materials);
+    this.effects = new TyreEffects(this.renderer.scene, this.materials, {
+      particles: this.renderer.settings.particles ?? 700,
+      skidSegments: this.renderer.settings.skidSegments ?? 900,
+    });
     this.camera = new ChaseCamera(this.renderer.camera, this.track);
     this.camera.reset(this.player);
     this.timer = new LapTimer(this.track);
@@ -262,6 +265,12 @@ export class Game {
     this.onState?.(this.state());
   }
 
+  /** Attaches on-screen controls (phones and tablets). */
+  setTouch(touch) {
+    this.touch = touch;
+    this.input.setTouch(touch);
+  }
+
   #handleActions() {
     const input = this.input;
     const pad = input.padButtons;
@@ -280,7 +289,7 @@ export class Game {
       this.headlightsOn = !this.headlightsOn;
       this.playerRig.setHeadlights(this.headlightsOn);
     }
-    this.camera.lookBack = input.held('look');
+    this.camera.lookBack = input.held('look') || Boolean(this.touchLookBack);
   }
 
   /**

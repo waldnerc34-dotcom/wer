@@ -281,8 +281,8 @@ const SURFACE_PARTICLE = [
  * hard enough to smoke, when it is throwing dirt, and where to lay rubber.
  */
 export class TyreEffects {
-  constructor(scene, materials, { skidSegments = 900 } = {}) {
-    this.smoke = new ParticleSystem(materials.smoke, { count: 700 });
+  constructor(scene, materials, { skidSegments = 900, particles = 700 } = {}) {
+    this.smoke = new ParticleSystem(materials.smoke, { count: particles });
     this.marks = Array.from({ length: 4 }, () => new SkidMarks(materials.skid, { segments: skidSegments }));
 
     scene.add(this.smoke.mesh);

@@ -2,18 +2,19 @@
 /**
  * Optional pass that shrinks the shipped glTF models.
  *
- * Draco-compresses geometry, prunes unused data and resizes oversized
- * textures. The game runs fine on the raw downloads — this only matters if you
- * are hosting APEX somewhere bandwidth is expensive.
+ * Draco-compresses geometry, prunes unused data, and re-encodes textures as
+ * WebP at a size appropriate to what they are. Run after `npm run assets`;
+ * the committed models are the output of this pass. Re-running it on already
+ * optimised files is harmless.
  *
  *   node scripts/optimize-assets.mjs [--dry]
  */
 
-import { readdir, stat, copyFile } from 'node:fs/promises';
+import { readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { NodeIO } from '@gltf-transform/core';
+import { NodeIO, PropertyType } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { dedup, draco, prune, resample, textureCompress, weld } from '@gltf-transform/functions';
 import draco3d from 'draco3dgltf';
@@ -43,21 +44,31 @@ for await (const file of walk(MODELS)) {
   const sizeBefore = (await stat(file)).size;
   before += sizeBefore;
 
+  // Scenery textures are flat colour swatches; cars carry real detail.
+  const isCar = file.includes('/cars/');
+  const maxTexture = isCar ? 2048 : 512;
+
   const doc = await io.read(file);
   await doc.transform(
-    dedup(),
-    prune(),
+    // Materials are deliberately not deduplicated: the car rig classifies
+    // parts by material *name*, and merging two identical-looking materials
+    // would silently drop one of those names.
+    dedup({ propertyTypes: [PropertyType.ACCESSOR, PropertyType.TEXTURE, PropertyType.MESH] }),
+    // Keep empty nodes — wheel hubs in some models are transform-only groups.
+    prune({ keepLeaves: true, keepAttributes: true }),
     resample(),
     weld(),
-    textureCompress({ encoder: sharp, targetFormat: 'webp', resize: [2048, 2048] }),
+    textureCompress({
+      encoder: sharp,
+      targetFormat: 'webp',
+      resize: [maxTexture, maxTexture],
+      quality: isCar ? 88 : 80,
+    }),
     draco({ method: 'edgebreaker' }),
   );
 
   const bytes = await io.writeBinary(doc);
-  if (!DRY) {
-    await copyFile(file, `${file}.orig`);
-    await (await import('node:fs/promises')).writeFile(file, bytes);
-  }
+  if (!DRY) await writeFile(file, bytes);
   after += bytes.length;
 
   const pct = (100 * (1 - bytes.length / sizeBefore)).toFixed(0);

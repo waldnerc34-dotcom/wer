@@ -33,25 +33,25 @@ export class Materials {
       gravelMr,
       flakeNrm,
     ] = await Promise.all([
-      T('textures/asphalt_basecolor.png', { srgb: true }),
-      T('textures/asphalt_normal.png'),
-      T('textures/asphalt_roughness.png'),
-      T('textures/kerb_basecolor.png', { srgb: true }),
-      T('textures/kerb_normal.png'),
-      T('textures/kerb_roughness.png'),
-      T('textures/concrete_basecolor.png', { srgb: true }),
-      T('textures/concrete_normal.png'),
-      T('textures/concrete_roughness.png'),
-      T('textures/grass_basecolor.png', { srgb: true }),
-      T('textures/grass_normal.png'),
-      T('textures/gravel_basecolor.png', { srgb: true }),
-      T('textures/gravel_normal.png'),
-      T('textures/gravel_metalrough.png'),
-      T('textures/flake_normal.png'),
+      T('textures/asphalt_basecolor.webp', { srgb: true }),
+      T('textures/asphalt_normal.webp'),
+      T('textures/asphalt_roughness.webp'),
+      T('textures/kerb_basecolor.webp', { srgb: true }),
+      T('textures/kerb_normal.webp'),
+      T('textures/kerb_roughness.webp'),
+      T('textures/concrete_basecolor.webp', { srgb: true }),
+      T('textures/concrete_normal.webp'),
+      T('textures/concrete_roughness.webp'),
+      T('textures/grass_basecolor.webp', { srgb: true }),
+      T('textures/grass_normal.webp'),
+      T('textures/gravel_basecolor.webp', { srgb: true }),
+      T('textures/gravel_normal.webp'),
+      T('textures/gravel_metalrough.webp'),
+      T('textures/flake_normal.webp'),
     ]);
 
-    this.smoke = await T('textures/smoke.png', { srgb: true });
-    this.skid = await T('textures/skid.png', { srgb: true });
+    this.smoke = await T('textures/smoke.webp', { srgb: true });
+    this.skid = await T('textures/skid.webp', { srgb: true });
 
     /* ------------------------------------------------------------- road -- */
 

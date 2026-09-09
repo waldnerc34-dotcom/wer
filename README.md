@@ -7,6 +7,10 @@ with load sensitivity and thermal behaviour, raycast suspension with anti-roll
 bars, a limited-slip differential, and aerodynamics that actually change how
 the car behaves at 300 km/h.
 
+**Play it now:** https://waldnerc34-dotcom.github.io/wer/ — works on a phone
+(turn it sideways), a tablet or a desktop browser. Every push to this branch
+redeploys it through `.github/workflows/pages.yml`.
+
 ```bash
 npm install
 npm run dev          # http://localhost:5173
@@ -14,6 +18,27 @@ npm run dev          # http://localhost:5173
 
 Assets are committed, so there is nothing else to fetch. `npm run build`
 produces a static `dist/` you can host anywhere.
+
+## On a phone
+
+Open the link above, tap **Go racing**, and turn the phone sideways. The left
+thumb gets an analogue steering slider (or tilt the phone like a wheel — pick
+*Tilt* on the start screen), the right thumb gets brake and throttle pads with
+a handbrake above them, and the small buttons along the top switch camera,
+look behind, rejoin the circuit and pause. Add it to your home screen for a
+full-screen app with no browser chrome.
+
+Phones get their own render path rather than a scaled-down desktop one:
+
+- No post-processing chain. Tone mapping runs in the main pass and the
+  hardware does the anti-aliasing — mobile GPUs are tile-based, so MSAA is
+  close to free there while a half-float composer is anything but.
+- Rendering at 0.8× CSS pixels, never at the 3× native density.
+- Two shadow cascades at 1024², 140 m of shadow range, about half the
+  scenery, and a quarter of the particle budget.
+- A session downloads about 7 MB. Models are Draco-compressed with WebP
+  textures, the authored surface maps are WebP, and only one HDRI is fetched.
+
 
 ---
 
@@ -196,17 +221,21 @@ three.js on WebGL2, with a post chain built on `postprocessing`:
 - Car paint is a metallic base coat under a near-perfect clear coat, with a
   fine flake normal map that only affects the base layer.
 
-Three quality presets are selectable at launch and guessed from the device on
-first load.
+Four quality presets are selectable at launch and guessed from the device on
+first load; a coarse pointer (a finger) selects the mobile preset.
 
 ### Asset pipeline
 
 Every third-party asset is pinned to a specific upstream commit in
-`scripts/sources.mjs` and fetched by `npm run assets`. Credits are regenerated
-from that manifest into `public/assets/CREDITS.md`, so they cannot drift.
+`scripts/sources.mjs`. `npm run assets` runs the whole pipeline — fetch,
+author the surface maps, convert textures to WebP, Draco-compress the models
+and re-encode their textures — and the committed files are its output, so a
+fresh clone needs none of it. Credits are regenerated from the manifest into
+`public/assets/CREDITS.md`, so they cannot drift.
 
-`npm run assets:optimize` is available but not required — the committed assets
-are already usable as-is.
+The optimiser deliberately does not deduplicate materials and keeps empty leaf
+nodes: the car rig classifies parts by material *name* and hangs wheels off
+transform-only group nodes, and either pass would silently break that.
 
 There is no CC0 asphalt scan reachable from the mirrors this pins against, so
 the track surfaces are authored instead by `scripts/gen-textures.mjs`: a height
@@ -228,8 +257,9 @@ src/
   render/     renderer + post chain, materials, car rig, particles
   game/       session orchestration, AI drivers, camera, lap timing
   ui/         HUD and menus
-scripts/      pinned asset manifest, fetcher, texture authoring
-tests/        physics validation harness
+scripts/      pinned asset manifest, fetcher, texture authoring, compression
+tests/        physics, AI and effects validation harnesses
+tools/        browser screenshot / emulated-phone checks
 ```
 
 ## Credits

@@ -1,5 +1,6 @@
 import './ui/style.css';
 
+import { TouchControls } from './core/Touch.js';
 import { Game } from './game/Game.js';
 import { HUD } from './ui/HUD.js';
 import { Menu } from './ui/Menu.js';
@@ -7,10 +8,17 @@ import { Menu } from './ui/Menu.js';
 const canvas = document.getElementById('viewport');
 const hudRoot = document.getElementById('hud');
 const overlay = document.getElementById('overlay');
+const touchRoot = document.getElementById('touch');
 
-const menu = new Menu(overlay);
+// Coarse pointer = finger. This is what decides on-screen controls, not the
+// user agent string, so a tablet with a keyboard attached still gets them.
+const IS_TOUCH = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+document.documentElement.classList.toggle('is-touch', IS_TOUCH);
+
+const menu = new Menu(overlay, { touch: IS_TOUCH });
 let game = null;
 let hud = null;
+let touch = null;
 let paused = false;
 
 /* ------------------------------------------------------------------ boot -- */
@@ -33,12 +41,19 @@ if (!supportsWebGL2()) {
 /* ----------------------------------------------------------------- start -- */
 
 async function start(selection) {
+  // Everything that needs a user gesture happens right here, on the tap.
+  if (IS_TOUCH) await enterImmersive();
+
   menu.showLoading();
 
   try {
     if (game) {
       game.dispose();
       game = null;
+    }
+    if (touch) {
+      touch.dispose();
+      touch = null;
     }
 
     game = new Game(canvas, {
@@ -54,10 +69,28 @@ async function start(selection) {
       },
     });
 
+    if (IS_TOUCH) {
+      touch = new TouchControls(touchRoot, {
+        onCamera: () => game?.camera.cycle(),
+        onReset: () => game?.respawn(),
+        onPause: () => (paused ? resume() : pause()),
+        onLookBack: (held) => {
+          if (game) game.touchLookBack = held;
+        },
+      });
+      if (selection.steering === 'tilt') {
+        const ok = await touch.enableTilt();
+        if (!ok) console.warn('Tilt steering unavailable; using the touch slider.');
+      }
+      game.setTouch(touch);
+    }
+
     await game.load(selection);
 
     hud = new HUD(hudRoot, game.track);
     hudRoot.classList.remove('hidden');
+    touch?.setVisible(true);
+    document.body.classList.add('playing');
     menu.clear();
 
     game.start();
@@ -81,6 +114,7 @@ function pause() {
   paused = true;
   game.setPaused(true);
   hudRoot.classList.add('hidden');
+  touch?.setVisible(false);
   menu.showPause({
     state: game.state(),
     assists: game.player.assists,
@@ -106,8 +140,11 @@ function pause() {
           game.dispose();
           game = null;
           hud = null;
+          touch?.dispose();
+          touch = null;
           hudRoot.innerHTML = '';
           hudRoot.classList.add('hidden');
+          document.body.classList.remove('playing');
           paused = false;
           menu.showStart(start);
         },
@@ -120,7 +157,29 @@ function resume() {
   paused = false;
   menu.clear();
   hudRoot.classList.remove('hidden');
+  touch?.setVisible(true);
   game.setPaused(false);
+}
+
+/* -------------------------------------------------------------- immersive -- */
+
+/**
+ * Fullscreen and a landscape lock, where the platform allows it. iPhones
+ * allow neither from a web page, which is what the rotate overlay is for.
+ */
+async function enterImmersive() {
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    }
+  } catch {
+    /* not available — fine */
+  }
+  try {
+    await screen.orientation?.lock?.('landscape');
+  } catch {
+    /* not available — fine */
+  }
 }
 
 /* ----------------------------------------------------------------- audio -- */
