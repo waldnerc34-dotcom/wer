@@ -7,9 +7,15 @@ with load sensitivity and thermal behaviour, raycast suspension with anti-roll
 bars, a limited-slip differential, and aerodynamics that actually change how
 the car behaves at 300 km/h.
 
-**Play it now:** https://waldnerc34-dotcom.github.io/wer/ — works on a phone
-(turn it sideways), a tablet or a desktop browser. Every push to this branch
-redeploys it through `.github/workflows/pages.yml`.
+**Play it:** https://waldnerc34-dotcom.github.io/wer/ — on a phone (turn it
+sideways), a tablet or a desktop browser. Every push to this branch builds the
+site and publishes it to the `gh-pages` branch through
+`.github/workflows/pages.yml`.
+
+If that link shows a 404, Pages has not been switched on for the repository
+yet — a one-time step only the repository owner can do: **Settings → Pages →
+Source: Deploy from a branch → `gh-pages` / (root)**. The site appears within
+a minute, and stays up to date from then on.
 
 ```bash
 npm install
