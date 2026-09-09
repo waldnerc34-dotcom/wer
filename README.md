@@ -34,10 +34,13 @@ but never let a page fetch: a chat artifact, an email attachment, a USB stick.
 
 To fit that under a 16 MB ceiling without a mesh decoder (decoders need
 workers or wasm, which such hosts may refuse), the packer re-encodes the
-models with KHR_mesh_quantization, which three.js reads natively, simplifies
-both cars to about 40% of their triangles with a tight error bound, halves
-the surface maps to 512², and turns every model texture into a data: URI so
-the loader never fetches or creates a blob. The loader's embedded mode
+models with KHR_mesh_quantization, which three.js reads natively, prunes
+vertex attributes no material reads, simplifies the concept car to about half
+its triangles, halves the surface maps to 512², and turns every model texture
+into a data: URI so the loader never fetches or creates a blob. (The Ferrari
+barely simplifies — it is unwelded triangle soup, so every edge is a border —
+and keeps its full 359k triangles; its savings come from the pruning and the
+quantisation.) The loader's embedded mode
 (`src/core/Assets.js`) parses models and the HDRI straight from memory.
 
 `npm run serve:artifact` serves that file under a Content-Security-Policy

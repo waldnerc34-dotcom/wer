@@ -34,13 +34,13 @@ const LIMIT_MB = 16;
 /* ----------------------------------------------------------- inventory --- */
 
 const MODELS = [
-  // Both cars are far denser than a chase camera can show — the Ferrari is
-  // 359k triangles, most of it interior stitching and wheel nuts. Simplified
-  // to ~40% with a tight error bound the silhouettes are unchanged and the
-  // bytes drop by more than half.
-  // The Ferrari is hundreds of small separate parts whose border edges the
-  // simplifier will not collapse, so it needs a looser error bound than the
-  // concept to reach its target at all.
+  // The concept car simplifies well: 213k → ~102k triangles with no visible
+  // change from a chase camera. The Ferrari does not — it is unwelded
+  // triangle soup, every vertex owned by one face with its own normal, so
+  // every edge is a border and the simplifier can collapse almost nothing
+  // (359k → ~310k at best, whatever the error bound). Its savings come from
+  // pruning unused vertex attributes and quantisation instead; the modest
+  // pass here is kept because it is free.
   { path: 'models/cars/ferrari.glb', texture: 1024, simplify: { ratio: 0.32, error: 0.006 } },
   { path: 'models/cars/concept.glb', texture: 1024, simplify: { ratio: 0.42, error: 0.0012 } },
   ...['tree3', 'tree4', 'bush1', 'bush2', 'bush3', 'bush4', 'bush5', 'rocks1', 'rocks2', 'rocks3', 'rocks4'].map(
