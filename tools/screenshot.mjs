@@ -26,7 +26,7 @@ page.on('console', m => { if (m.type()==='error') logs.push(`[error] ${m.text()}
 page.on('pageerror', e => logs.push(`[pageerror] ${e.message}`));
 page.on('requestfailed', r => logs.push(`[fail] ${r.url().slice(-70)}`));
 
-await page.goto('http://127.0.0.1:4173/', { waitUntil: 'load', timeout: 60000 });
+await page.goto(URL, { waitUntil: 'load', timeout: 60000 });
 await page.waitForTimeout(1000);
 await page.screenshot({ path: `${P}/01-menu.png` });
 // Optional: CAR=concept picks the second car; MODE=race exercises the AI field.
