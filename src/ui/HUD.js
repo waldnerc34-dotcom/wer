@@ -41,6 +41,11 @@ export class HUD {
       throttleBar: root.querySelector('[data-throttle]'),
       brakeBar: root.querySelector('[data-brake]'),
       gmeter: root.querySelector('[data-gmeter]'),
+      callout: root.querySelector('[data-callout]'),
+      result: root.querySelector('[data-result]'),
+      resultRows: root.querySelector('[data-result-rows]'),
+      resultNote: root.querySelector('[data-result-note]'),
+      detail: root.querySelector('[data-detail]'),
     };
 
     this.#buildTicks();
@@ -158,8 +163,20 @@ export class HUD {
     e.rpmFill.style.transform = `rotate(${angle}deg)`;
     e.gauge.classList.toggle('redline', rev > 0.92);
 
-    // Timing.
-    this.#set('lap', e.lap, `LAP ${Math.max(state.lap, 1)}`);
+    // Timing. In a race the lap counter reads against the distance, because
+    // "lap 4" means nothing until you know whether there are five or twelve.
+    this.#set(
+      'lap',
+      e.lap,
+      state.raceLaps
+        ? `LAP ${Math.min(Math.max(state.lap, 1), state.raceLaps)}/${state.raceLaps}`
+        : `LAP ${Math.max(state.lap, 1)}`,
+    );
+
+    // The starter, and the flag.
+    this.#callout(state);
+    this.#result(state);
+    this.#set('detail', e.detail, state.detail ? `detail: ${state.detail}` : '');
     this.#set('lapTime', e.lapTime, formatLap(state.lapTime));
     this.#set('last', e.lastLap, formatLap(state.lastLap));
     this.#set('best', e.bestLap, formatLap(state.bestLap));
@@ -232,6 +249,50 @@ export class HUD {
     if (this.mapClock % 3 === 0) this.#drawMap(state, opponents);
   }
 
+  /** The big number over the middle of the screen on the way to lights out. */
+  #callout(state) {
+    const e = this.el;
+    const text = state.callout ?? '';
+    if (this.cache.get('callout') === text) return;
+    this.cache.set('callout', text);
+    e.callout.textContent = text;
+    e.callout.className = `callout${text ? ' on' : ''}${text === 'GO' ? ' go' : ''}`;
+    // Restarting the animation needs the element out of the document flow for
+    // a frame; toggling the class alone will not replay it.
+    if (text) {
+      e.callout.style.animation = 'none';
+      void e.callout.offsetWidth;
+      e.callout.style.animation = '';
+    }
+  }
+
+  /** The classification, once somebody has completed the distance. */
+  #result(state) {
+    const e = this.el;
+    const shown = Boolean(state.classification);
+    if (this.cache.get('result') === shown) return;
+    this.cache.set('result', shown);
+    e.result.hidden = !shown;
+    if (!shown) return;
+
+    e.resultRows.innerHTML = state.classification
+      .map(
+        (c) => `<div class="result-row${c.isPlayer ? ' you' : ''}">
+          <span class="result-pos">${c.position}</span>
+          <span class="result-name">${c.name}</span>
+          <span class="result-best">${formatLap(c.best ?? 0)}</span>
+        </div>`,
+      )
+      .join('');
+    const me = state.classification.find((c) => c.isPlayer);
+    const ordinal = ['', '1st', '2nd', '3rd'][me?.position] ?? `${me?.position}th`;
+    e.resultNote.textContent =
+      (me?.position === 1 ? `Won it — ${ordinal}` : `Finished ${ordinal}`) +
+      (state.reaction !== null && state.reaction !== undefined
+        ? ` · ${state.reaction.toFixed(3)} s off the line`
+        : '');
+  }
+
   #drawMap(state, opponents) {
     const ctx = this.mapCtx;
     const size = this.mapSize;
@@ -290,10 +351,12 @@ const TEMPLATE = /* html */ `
     <div data-autobrake class="autobrake">AUTO BRAKE</div>
     <div data-corner class="corner"></div>
     <div data-warn class="warn"></div>
+    <div data-callout class="callout"></div>
   </div>
   <div class="panel map-panel">
     <canvas data-map class="map"></canvas>
     <div data-fps class="fps"></div>
+    <div data-detail class="detail"></div>
   </div>
 </div>
 
@@ -326,6 +389,15 @@ const TEMPLATE = /* html */ `
       <div class="pedal"><i data-brake class="fill brake"></i><span>B</span></div>
     </div>
     <div class="gbox"><div class="gcross"></div><i data-gmeter class="gdot"></i></div>
+  </div>
+</div>
+
+<div data-result class="result" hidden>
+  <div class="result-card">
+    <div class="result-title">Chequered flag</div>
+    <div data-result-rows class="result-rows"></div>
+    <div data-result-note class="result-note"></div>
+    <div class="result-hint">Esc for the pause menu</div>
   </div>
 </div>
 `;

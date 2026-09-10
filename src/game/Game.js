@@ -16,12 +16,15 @@ import { DrivingAssist } from './Assist.js';
 import { Pacing } from '../track/Pacing.js';
 import { SURFACE } from '../track/Track.js';
 import { Scenery } from '../track/Scenery.js';
+import { Props } from '../track/Props.js';
+import { Ocean } from '../track/Ocean.js';
 import { Track } from '../track/Track.js';
 import { buildTrack } from '../track/TrackBuilder.js';
 import { CARS, Vehicle } from '../physics/Vehicle.js';
 import { Driver, FieldPace, makeField } from './AI.js';
 import { ChaseCamera } from './Camera.js';
 import { LapTimer } from './Timing.js';
+import { RaceControl } from './RaceControl.js';
 import { Weather } from './Weather.js';
 
 const PAINTS = [0x9d0208, 0x0b3d91, 0xf2f2f0, 0x111214, 0xd6a419, 0x1f6f4a, 0x6d28d9, 0xc2410c];
@@ -82,10 +85,16 @@ export class Game {
     carId = 'rosso',
     mode = 'time-trial',
     opponents = 5,
+    laps = 5,
     weather = 'clear',
     assist = 'high',
   } = {}) {
     this.assist = new DrivingAssist(assist);
+    // A race is a set distance from a standing start; a time trial is neither.
+    this.race = new RaceControl({
+      laps: mode === 'race' ? laps : 0,
+      standing: mode === 'race',
+    });
     this.running = false;
     this.#teardown();
 
@@ -114,6 +123,8 @@ export class Game {
     this.onProgress?.(0.38, 'Laying the tarmac');
     const built = buildTrack(this.track, this.materials);
     this.trackGroup = built.group;
+    this.startLights = built.startLights;
+    this.startLights?.set(0);
     this.renderer.scene.add(this.trackGroup);
 
     this.racingLine = new RacingLineMesh(this.track, this.pacing, { spacing: 5 });
@@ -126,6 +137,21 @@ export class Game {
     });
     await this.scenery.build(this.assets);
     this.renderer.scene.add(this.scenery.group);
+
+    this.onProgress?.(0.60, 'Building the paddock');
+    this.props = new Props(this.track, { density: this.renderer.settings.sceneryDensity });
+    await this.props.build(
+      this.assets,
+      // The cars parked in the paddock are the cars that race here.
+      availableCars().map((c) => c.model).filter(Boolean),
+    );
+    this.renderer.scene.add(this.props.group);
+
+    if (circuit.sea) {
+      this.ocean = new Ocean(circuit.sea);
+      this.ocean.setNormals(await this.assets.texture('textures/water_normals.jpg'));
+      this.renderer.scene.add(this.ocean.mesh);
+    }
 
     this.onProgress?.(0.72, 'Warming the cars');
     await this.#spawnCars(carDef, mode === 'race' ? opponents : 0);
@@ -216,6 +242,16 @@ export class Game {
       this.renderer.scene.remove(this.scenery.group);
       this.scenery = null;
     }
+    if (this.props) {
+      this.renderer.scene.remove(this.props.group);
+      disposeTree(this.props.group);
+      this.props = null;
+    }
+    if (this.ocean) {
+      this.renderer.scene.remove(this.ocean.mesh);
+      this.ocean.dispose();
+      this.ocean = null;
+    }
     if (this.playerRig) {
       this.renderer.scene.remove(this.playerRig.group);
       this.playerRig.dispose();
@@ -284,9 +320,30 @@ export class Game {
   #step(dt) {
     const player = this.player;
 
+    /* -- the starter ------------------------------------------------------ */
+    this.race.update(dt);
+    this.startLights?.set(this.race.lamps);
+
     /* -- input ------------------------------------------------------------ */
     const controls = this.input.update(dt, player.speedKph);
     this.#handleActions();
+
+    // On the grid the brakes are on and the wheel is straight, but the engine
+    // is the player's: holding the throttle against the lights is how a
+    // standing start is done, and hearing it is half of what makes the wait
+    // worth having.
+    if (this.race.holding) {
+      controls.brake = 1;
+      controls.handbrake = 1;
+      controls.steer = 0;
+    } else {
+      this.race.noteLaunch(controls.throttle > 0.15);
+    }
+    if (this.race.finished) {
+      // Flag out: the driver is a passenger from here.
+      controls.throttle = 0;
+      controls.brake = Math.max(controls.brake, 0.35);
+    }
 
     // Braking help reads the same speed profile the arrows are drawn from,
     // a moment ahead of where the car is. Last frame's position is a metre
@@ -300,6 +357,7 @@ export class Game {
 
     /* -- simulate --------------------------------------------------------- */
     player.update(dt, controls);
+    if (this.race.holding) this.#pin(player);
 
     // How quick the player is, measured rather than assumed. Last frame's
     // query is a few centimetres stale, which is nothing over the five
@@ -315,7 +373,17 @@ export class Game {
     const all = [{ vehicle: player, q: this.playerQuery, isPlayer: true }, ...this.opponents];
     for (const o of this.opponents) {
       const c = o.driver.update(dt, all);
+      if (this.race.holding) {
+        c.throttle = 0;
+        c.brake = 1;
+        c.handbrake = 1;
+        c.steer = 0;
+      } else if (this.race.finished) {
+        c.throttle = 0;
+        c.brake = Math.max(c.brake, 0.3);
+      }
       o.vehicle.update(dt, c);
+      if (this.race.holding) this.#pin(o.vehicle);
       o.rig.update(o.vehicle, dt);
       o.q = this.track.query(o.vehicle.position.x, o.vehicle.position.z, o.q ?? {});
       o.timer.update(dt, o.q.s, false);
@@ -332,6 +400,7 @@ export class Game {
     this.timer.update(dt, q.s, offTrack);
 
     this.#slipstream(q);
+    this.#checkFlag(q);
 
     /* -- visuals ---------------------------------------------------------- */
     this.playerRig.update(player, dt);
@@ -347,6 +416,7 @@ export class Game {
     this.renderer.setSkyboxCentre(player.position);
     this.camera.update(player, dt, impact);
     this.rain?.update(dt, this.renderer.camera);
+    this.ocean?.update(dt, this.renderer.camera);
     if (this.materials) this.materials.rippleTime.value += dt;
     this.splashes?.update(dt, this.renderer.camera, this.track);
     this.renderer.setSpeedBlur(player.speedKph);
@@ -567,7 +637,60 @@ export class Game {
       assistBraking: this.assist?.braking ?? 0,
       pace: this.pacing.phaseAt(this.playerQuery?.s ?? 0),
       paceSpeedKph: this.pacing.speedAt(this.playerQuery?.s ?? 0) * 3.6,
+      raceLaps: this.race.laps,
+      callout: this.race.callout,
+      lamps: this.race.lamps,
+      holding: this.race.holding,
+      finished: this.race.finished,
+      classification: this.race.classification,
+      reaction: this.race.reaction,
+      detail: this.renderer.detailNote,
     };
+  }
+
+  /**
+   * Holds a car exactly where it is.
+   *
+   * Brakes and a handbrake nearly do it, but "nearly" on a cambered grid box
+   * is a car that has crept a metre by the time the lights go out, and on a
+   * downhill start it is a car that has jumped them. Zeroing the velocity
+   * outright is the only thing that actually means stationary.
+   */
+  #pin(vehicle) {
+    vehicle.velocity.set(0, 0, 0);
+    vehicle.angularVelocity.set(0, 0, 0);
+  }
+
+  /** Everyone's progress, in the order the flag would classify them. */
+  #order(playerQ) {
+    const length = this.track.length;
+    const cars = [
+      {
+        name: 'You',
+        isPlayer: true,
+        laps: this.timer.laps.length,
+        distance: this.timer.laps.length * length + (playerQ?.s ?? 0),
+        best: this.timer.bestLap,
+      },
+    ];
+    for (const o of this.opponents) {
+      cars.push({
+        name: o.name,
+        isPlayer: false,
+        laps: o.timer.laps.length,
+        distance: o.timer.laps.length * length + (o.q?.s ?? 0),
+        best: o.timer.bestLap,
+      });
+    }
+    return cars;
+  }
+
+  /** Brings the flag out the moment somebody completes the distance. */
+  #checkFlag(playerQ) {
+    if (!this.race.laps || this.race.finished) return;
+    if (!this.race.check(this.#order(playerQ))) return;
+    this.audio?.impact?.(0.25);
+    this.onFinish?.(this.race.classification);
   }
 
   #racePosition() {

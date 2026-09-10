@@ -990,3 +990,137 @@ html.is-touch, html.is-touch body {
   .btn { min-height: 48px; }
   .keys { display: none; }
 }
+
+/* ------------------------------------------------------- the starter, the flag */
+
+/*
+ * The count to lights out. Big enough to read without looking away from the
+ * road, and gone the instant it stops mattering — a number still fading over
+ * the first corner is a number in the way.
+ */
+/*
+ * Out of the flow: at 160px this element is taller than the panel it sits in,
+ * and leaving it there shoves the corner name and the delta down the screen
+ * for three seconds every race.
+ */
+.callout {
+  position: absolute;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: clamp(64px, 14vw, 160px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: #fff;
+  text-shadow: 0 0 24px rgba(0, 0, 0, 0.55), 0 2px 0 rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.callout.on {
+  animation: callout 0.62s ease-out both;
+}
+
+.callout.go {
+  color: #46e07a;
+  animation: callout-go 1.1s ease-out both;
+}
+
+@keyframes callout {
+  0% { opacity: 0; transform: translateX(-50%) scale(1.5); }
+  22% { opacity: 1; transform: translateX(-50%) scale(1); }
+  100% { opacity: 0.35; transform: translateX(-50%) scale(0.94); }
+}
+
+@keyframes callout-go {
+  0% { opacity: 0; transform: translateX(-50%) scale(0.7); }
+  14% { opacity: 1; transform: translateX(-50%) scale(1.12); }
+  36% { transform: translateX(-50%) scale(1); }
+  100% { opacity: 0; transform: translateX(-50%) scale(1); }
+}
+
+/* What the renderer had to give up to hold the frame rate. Said out loud,
+   quietly, because a picture that quietly got worse is worse than one that
+   says why. */
+.detail {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  text-align: right;
+}
+
+/*
+ * `display: grid` beats the user-agent rule behind the `hidden` attribute, so
+ * without this the classification covers the race from the first frame — a
+ * chequered flag before the lights have even gone out.
+ */
+.result[hidden] {
+  display: none;
+}
+
+.result {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 10, 14, 0.62);
+  backdrop-filter: blur(6px);
+  pointer-events: auto;
+  z-index: 5;
+}
+
+.result-card {
+  min-width: min(460px, 88vw);
+  padding: 22px 26px;
+  border-radius: 16px;
+  background: rgba(18, 21, 27, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.result-title {
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 12px;
+}
+
+.result-row {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.result-row.you {
+  background: rgba(70, 224, 122, 0.12);
+  color: #9df3b8;
+}
+
+.result-pos {
+  opacity: 0.55;
+  text-align: right;
+}
+
+.result-best {
+  opacity: 0.7;
+  font-size: 12px;
+}
+
+.result-note {
+  margin-top: 14px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.result-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  opacity: 0.45;
+}

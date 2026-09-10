@@ -158,6 +158,52 @@ export const ASSETS = [
     credit: 'Village Pack — Babylon.js Assets, CC BY 4.0',
   })),
 
+  // ------------------------------------------------------------------ sea ---
+  {
+    repo: 'three',
+    from: 'examples/textures/waternormals.jpg',
+    to: 'textures/water_normals.jpg',
+    credit: 'Water normal map — three.js examples, MIT',
+  },
+
+  // ------------------------------------------------------- trackside props ---
+  // Buildings, a works compound and the bits and pieces that make the far
+  // side of a barrier look like somewhere rather than nowhere. All real
+  // modelled assets from the same village pack the trees come from, so they
+  // share its material language.
+  ...[
+    ['cottage', 'cottage'],
+    ['inn', 'inn'],
+    ['sawMill', 'sawmill'],
+    ['waterwell', 'well'],
+    ['wagon', 'wagon'],
+    ['crate1', 'crate1'],
+    ['crate2', 'crate2'],
+    ['crateStack', 'cratestack'],
+    ['barrel', 'barrel'],
+    ['fence', 'fence'],
+    ['wall', 'wall'],
+    ['wallCorner', 'wallcorner'],
+    ['lightPost1', 'lightpost'],
+    ['logSaw', 'logsaw'],
+    ['stump', 'stump'],
+  ].map(([from, to]) => ({
+    repo: 'babylon',
+    from: `meshes/villagePack/${from}/${from}.glb`,
+    to: `models/props/${to}.glb`,
+    credit: 'Village Pack — Babylon.js Assets, CC BY 4.0',
+  })),
+  {
+    // A parked car. Deliberately not one of the cars the race is run in:
+    // those are fifty to a hundred primitives apiece because every vent and
+    // badge is its own material, which is exactly right for the one car
+    // filling the screen and exactly wrong for the eighty in the car park.
+    repo: 'babylon',
+    from: 'meshes/car.glb',
+    to: 'models/props/car.glb',
+    credit: 'Low-poly car — Babylon.js Assets, CC BY 4.0',
+  },
+
   // ------------------------------------------------------------- surfaces ---
   {
     repo: 'babylon',

@@ -3,6 +3,7 @@ import { CIRCUITS, buildCentreline } from '../track/Layout.js';
 import { CARS } from '../physics/Vehicle.js';
 import { ASSIST_LEVELS } from '../game/Assist.js';
 import { WEATHERS } from '../game/Weather.js';
+import { RACE_LENGTHS } from '../game/RaceControl.js';
 import { QUALITY } from '../render/Renderer.js';
 import { formatLap } from '../game/Timing.js';
 
@@ -31,6 +32,9 @@ export class Menu {
       opponents: touch ? 3 : 5,
       steering: 'touch',
       weather: 'clear',
+      // Long enough that the start is not the whole race, short enough that
+      // a phone session fits in a bus stop.
+      laps: 5,
     };
     this.outlines = new Map();
   }
@@ -86,6 +90,7 @@ export class Menu {
       <section class="field" data-field="assist"><header><label>Braking help</label><span data-sub></span></header><div class="choices seg"></div></section>
       <div class="row2">
         <section class="field" data-field="mode"><label>Session</label><div class="choices seg"></div></section>
+        <section class="field" data-field="laps" hidden><label>Distance</label><div class="choices seg"></div></section>
         <section class="field" data-field="quality"><label>Graphics</label><div class="choices seg"></div></section>
         <section class="field" data-field="steering" hidden><label>Steering</label><div class="choices seg"></div></section>
       </div>
@@ -133,10 +138,26 @@ export class Menu {
       note: a.note,
     })), (v) => (this.selection.assist = v), this.selection.assist);
 
+    const distance = picker.querySelector('[data-field="laps"]');
+    // The distance only means anything in a race, so it only appears in one.
+    const showDistance = () => {
+      distance.hidden = this.selection.mode !== 'race';
+    };
+
     this.#choices(picker, 'mode', 'seg', [
       { id: 'time-trial', label: 'Time trial', note: 'Empty circuit, chase the clock' },
-      { id: 'race', label: 'Race', note: `${this.selection.opponents} AI drivers` },
-    ], (v) => (this.selection.mode = v), this.selection.mode);
+      { id: 'race', label: 'Race', note: `${this.selection.opponents} AI drivers, standing start` },
+    ], (v) => {
+      this.selection.mode = v;
+      showDistance();
+    }, this.selection.mode);
+
+    this.#choices(picker, 'laps', 'seg', RACE_LENGTHS.map((r) => ({
+      id: String(r.id),
+      label: r.label,
+      note: r.note,
+    })), (v) => (this.selection.laps = Number(v)), String(this.selection.laps));
+    showDistance();
 
     this.#choices(picker, 'quality', 'seg', Object.entries(QUALITY).map(([id, q]) => ({
       id,

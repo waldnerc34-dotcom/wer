@@ -15,12 +15,14 @@ public repository at a pinned commit (see `scripts/sources.mjs`).
 - HDRI — Poly Haven, CC0 (mirrored by three.js)
 - Lamborghini Urus — Steven Grey (sketchfab.com/Steven007, via pmndrs/examples), CC BY-NC 4.0 — non-commercial use only
 - Lens flare — three.js examples, MIT
+- Low-poly car — Babylon.js Assets, CC BY 4.0
 - Photographic tree canopy — Babylon.js Assets, CC BY 4.0
 - Porsche 911 Carrera 4S — Karol Miklas (sketchfab.com/karolmiklas, via pmndrs/examples), CC BY-SA 4.0
 - Rocky ground PBR set — Babylon.js Assets, CC BY 4.0
 - Spark sprite — three.js examples, MIT
 - Valley grass — Babylon.js Assets, CC BY 4.0
 - Village Pack — Babylon.js Assets, CC BY 4.0
+- Water normal map — three.js examples, MIT
 
 ## Upstream repositories
 

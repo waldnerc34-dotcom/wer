@@ -85,13 +85,25 @@ const page = await browser.newPage({
 });
 page.setDefaultTimeout(300000);
 const logs = [];
-page.on('console', (m) => { if (m.type() === 'error') logs.push(`[error] ${m.text()}`); });
+page.on('console', (m) => {
+  if (m.type() === 'error' || m.type() === 'warning' || process.env.VERBOSE) {
+    logs.push(`[${m.type()}] ${m.text().slice(0, 300)}`);
+  }
+});
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
 
 await page.goto(URL, { waitUntil: 'load', timeout: 90000 });
 await page.waitForTimeout(1200);
 await page.locator('[data-field="quality"] .choice').filter({ hasText: new RegExp(QUALITY, 'i') }).first().click();
 if (process.env.MODE === 'race') await page.getByRole('button', { name: /Race/ }).click();
+if (process.env.CIRCUIT) {
+  await page.locator('[data-field="circuit"] .choice')
+    .filter({ hasText: new RegExp(process.env.CIRCUIT, 'i') }).first().click();
+}
+if (process.env.WEATHER) {
+  await page.locator('[data-field="weather"] .choice')
+    .filter({ hasText: new RegExp(`^${process.env.WEATHER}`, 'i') }).first().click();
+}
 await page.locator('[data-start]').click();
 await page.waitForSelector('#hud:not(.hidden)', { timeout: 300000 });
 await page.waitForTimeout(Number(process.env.SETTLE || 6000));
@@ -130,7 +142,7 @@ console.log(`${QUALITY} @ ${W}×${H} dpr ${DPR}`);
 console.log(`  drawing buffer ${state.drawing} · context ${state.lost ? 'LOST' : 'ok'}`);
 console.log(`  ${(litShare * 100).toFixed(1)}% lit · mean ${mean.toFixed(0)}/255 · ${tones.size} tones`);
 if (state.hud) console.log(`  hud: ${state.hud.trim()}`);
-if (logs.length) console.log('  console:\n' + logs.slice(0, 8).map((l) => '    ' + l).join('\n'));
+if (logs.length) console.log('  console:\n' + logs.slice(0, 14).map((l) => '    ' + l).join('\n'));
 await browser.close();
 // A live frame of a circuit in daylight is nearly all lit and has hundreds of
 // tones in it. A dead one is neither.

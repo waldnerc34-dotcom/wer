@@ -210,6 +210,9 @@ export const APEX_INTERNATIONAL = {
   name: 'Apex International',
   country: 'Circuit de la Vallée',
   hdri: 'venice_sunset_1k.hdr',
+  // The sky over this one is a Venetian lagoon at sunset; the water it was
+  // photographed over should be there too.
+  sea: { level: -52, color: 0x123043 },
   sunAzimuth: 118,
   sunElevation: 14,
   segments: [
@@ -244,6 +247,9 @@ export const COASTAL_SPRINT = {
   name: 'Costa Brava Sprint',
   country: 'Seaside Circuit',
   hdri: 'quarry_01_1k.hdr',
+  // It is called Costa Brava. Below the lowest ground the terrain reaches, so
+  // the water only shows where the land runs out — which is the point.
+  sea: { level: -34, color: 0x0c3245 },
   sunAzimuth: 210,
   sunElevation: 28,
   segments: [

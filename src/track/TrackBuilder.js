@@ -22,9 +22,9 @@ export function buildTrack(track, mats) {
   const gravel = buildGravelTraps(track, mats);
   const terrain = buildTerrain(track, mats);
   const barriers = buildBarriers(track, mats);
-  const startLine = buildStartLine(track, mats);
+  const start = buildStartLine(track, mats);
 
-  group.add(terrain, runoff, gravel, road, kerbs, lines, ...barriers, ...startLine);
+  group.add(terrain, runoff, gravel, road, kerbs, lines, ...barriers, ...start.meshes);
 
   for (const o of group.children) {
     o.castShadow = false;
@@ -37,7 +37,7 @@ export function buildTrack(track, mats) {
     b.receiveShadow = true;
   }
 
-  return { group, terrain, road };
+  return { group, terrain, road, startLights: start.lights };
 }
 
 /* ------------------------------------------------------------------- road */
@@ -655,8 +655,34 @@ function buildStartLine(track, mats) {
   dark.instanceMatrix.needsUpdate = true;
   out.push(light, dark);
 
-  out.push(buildGantry(track, mats, { origin, lat, heading, halfW }));
-  return out;
+  const gantry = buildGantry(track, mats, { origin, lat, heading, halfW });
+  out.push(gantry.group);
+  return { meshes: out, lights: gantry.lights };
+}
+
+/**
+ * The five red lamps under the gantry beam, and the one thing they do.
+ *
+ * Separate meshes rather than one instanced draw: five objects is nothing,
+ * and instancing them would mean every lamp shares a material, which is the
+ * one property that has to differ — the whole point is lighting them one at
+ * a time.
+ */
+class StartLights {
+  constructor(lamps) {
+    this.lamps = lamps;
+  }
+
+  /** @param {number} lit how many lamps are on, counting from the left */
+  set(lit) {
+    for (let i = 0; i < this.lamps.length; i++) {
+      const on = i < lit;
+      const m = this.lamps[i].material;
+      // Dark is not black: an unlit lamp is still a red lens catching the sky.
+      m.emissiveIntensity = on ? 7 : 0.22;
+      m.color.setHex(on ? 0xff4030 : 0x2a0705);
+    }
+  }
 }
 
 /**
@@ -724,27 +750,25 @@ function buildGantry(track, mats, { origin, lat, heading, halfW }) {
   const panelGeo = new THREE.BoxGeometry(3.4, 0.75, 0.22);
   const panel = add(panelGeo, mats.trim, 0, HEIGHT - 0.35);
 
-  // Five red lamps, dark until a race start would light them.
-  const lampGeo = new THREE.SphereGeometry(0.17, 10, 8);
-  const lampMat = new THREE.MeshStandardMaterial({
-    color: 0x2a0705,
-    emissive: new THREE.Color(0xff2010),
-    emissiveIntensity: 0.25,
-    roughness: 0.3,
-  });
-  const lamps = new THREE.InstancedMesh(lampGeo, lampMat, 5);
-  const dummy = new THREE.Object3D();
+  // Five red lamps, dark until the starter lights them.
+  const lampGeo = new THREE.SphereGeometry(0.17, 12, 10);
+  const lamps = [];
   for (let k = 0; k < 5; k++) {
-    dummy.position
-      .copy(panel.position)
-      .addScaledVector(lat, -1.4 + k * 0.7);
-    dummy.position.y += 0.02;
-    dummy.updateMatrix();
-    lamps.setMatrixAt(k, dummy.matrix);
+    const lamp = new THREE.Mesh(
+      lampGeo,
+      new THREE.MeshStandardMaterial({
+        color: 0x2a0705,
+        emissive: new THREE.Color(0xff2010),
+        emissiveIntensity: 0.22,
+        roughness: 0.3,
+      }),
+    );
+    lamp.position.copy(panel.position).addScaledVector(lat, -1.4 + k * 0.7);
+    lamp.position.y += 0.02;
+    lamp.name = `start-lamp-${k}`;
+    gantry.add(lamp);
+    lamps.push(lamp);
   }
-  lamps.instanceMatrix.needsUpdate = true;
-  lamps.name = 'start-lights';
-  gantry.add(lamps);
 
-  return gantry;
+  return { group: gantry, lights: new StartLights(lamps) };
 }
