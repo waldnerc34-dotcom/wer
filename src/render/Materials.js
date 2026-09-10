@@ -222,17 +222,31 @@ export class Materials {
    * Automotive paint: a metallic base coat under a thin, near-perfect clear
    * coat, with a fine flake normal that only affects the base layer.
    */
-  carPaint(color, { flakes = true, metallic = 0.85 } = {}) {
+  carPaint(color, { flakes = true, metallic = 0.12 } = {}) {
+    // Car paint is not metal. It is a coloured dielectric base with metal
+    // flakes suspended in it under a clear lacquer, and the difference
+    // matters: a metalness of 0.85 has almost no diffuse term at all, so the
+    // body stops showing its own colour and shows the sky instead. Against a
+    // bright sky that is a pale, blotchy car whatever colour you painted it —
+    // which is exactly how it looked.
+    //
+    // Low metalness for the base, a full clear coat for the gloss, and the
+    // flake normal for the sparkle. The colour comes back, and the highlight
+    // comes from the lacquer where it belongs.
     const m = new THREE.MeshPhysicalMaterial({
       color: new THREE.Color(color),
       metalness: metallic,
-      roughness: 0.32,
+      roughness: 0.42,
       clearcoat: 1,
-      clearcoatRoughness: 0.035,
-      envMapIntensity: 1.35,
+      clearcoatRoughness: 0.05,
+      // The clear coat already carries the reflection; a third again on top
+      // of it was the rest of the washout.
+      envMapIntensity: 1,
       normalMap: flakes ? this.flakeNormal : null,
-      normalScale: new THREE.Vector2(0.06, 0.06),
-      sheen: 0.25,
+      // Flakes are a sparkle at arm's length and noise at fifty metres, which
+      // is where a car spends most of a race.
+      normalScale: new THREE.Vector2(0.035, 0.035),
+      sheen: 0.18,
       sheenColor: new THREE.Color(color).offsetHSL(0, 0, 0.25),
     });
     return m;

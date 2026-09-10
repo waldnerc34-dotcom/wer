@@ -20,8 +20,12 @@ export const WEATHERS = [
     sky: { exposure: 1, desaturate: 0, tint: [1, 1, 1], flatten: 0 },
     env: 1,
     sun: { intensity: 1, color: 0xfff2e0 },
-    hemi: 0.28,
-    fog: { color: 0xa8bacd, near: 620, far: 3400, scatter: 0.95, shafts: 0.5, height: 110 },
+    hemi: 0.22,
+    // Haze that starts closer than the far end of the circuit, and scatters
+    // nearly all of the sun into itself, does not read as distance — it reads
+    // as a white sheet hung across the middle distance. Depth comes from the
+    // *contrast* between near and far, so the near half has to stay clear.
+    fog: { color: 0xa8bacd, near: 1100, far: 4200, scatter: 0.45, shafts: 0.3, height: 110 },
     rain: 0,
     wind: 0.55,
     headlights: false,

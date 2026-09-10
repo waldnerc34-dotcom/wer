@@ -214,11 +214,17 @@ export const QUALITY = {
 
 /**
  * What gets given up, and in what order, when there are no pixels left to
- * give. Most expensive first; the ones that would actually be missed go last.
- * Every entry is switchable at runtime without recompiling a shader, which is
- * the whole point — a stutter to avoid a stutter is not a fix.
+ * give. Every entry is switchable at runtime without recompiling a shader,
+ * which is the whole point — a stutter to avoid a stutter is not a fix.
+ *
+ * The order is by what you would miss, not by what costs most, and ambient
+ * occlusion is late in it for a reason. It was second before, which meant a
+ * phone lost the contact shadows under every kerb, barrier and tree almost
+ * immediately — and contact shadows are most of what makes a rendered scene
+ * look like it has depth rather than like a painting of one. Light shafts and
+ * motion blur are effects; ambient occlusion is the floor the world sits on.
  */
-const SHED = ['reflections', 'ao', 'smaa', 'shafts', 'motionBlur', 'shadowRange'];
+const SHED = ['reflections', 'shafts', 'motionBlur', 'smaa', 'ao', 'shadowRange'];
 
 /**
  * How the bloom is combined with the image underneath it.
@@ -399,9 +405,14 @@ export class Renderer {
     // With a post chain, tone mapping is the last effect; without one the
     // main pass does it. AgX either way.
     this.renderer.toneMapping = this.usePost ? THREE.NoToneMapping : THREE.AgXToneMapping;
-    // A touch above neutral: AgX protects highlights so well that a
-    // straight 1.0 leaves the midtones darker than the scene really is.
-    this.renderer.toneMappingExposure = 1.15;
+    // Below neutral, which is not where this started. At 1.15 a clear day
+    // measured a tenth of one per cent of the frame below quarter brightness
+    // and a third of it above three quarters: no shadows at all, and a third
+    // of the picture pinned near white. AgX protects highlights so well that
+    // over-exposing it does not clip, it just flattens — every value slides
+    // up the curve into the shoulder together and the image loses its
+    // shadows without ever looking blown.
+    this.renderer.toneMappingExposure = 0.88;
     this.renderer.shadowMap.enabled = this.settings.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
@@ -565,7 +576,10 @@ export class Renderer {
 
     // A very small ambient term stands in for the light the HDRI cannot
     // deliver into deep crevices; image-based lighting does the rest.
-    this.hemi = new THREE.HemisphereLight(0x9fb6d4, 0x4a4238, 0.34);
+    // Sky fill, and not much of it. This is the light that reaches into
+    // shadow, so it is also the dial that decides whether a shadow is a
+    // shadow or a slightly darker shade of the thing next to it.
+    this.hemi = new THREE.HemisphereLight(0x9fb6d4, 0x4a4238, 0.2);
     this.scene.add(this.hemi);
   }
 
@@ -630,9 +644,14 @@ export class Renderer {
 
     this.bloom = new BloomEffect({
       blendFunction: BLOOM_BLEND,
-      intensity: 0.62,
-      luminanceThreshold: 0.78,
-      luminanceSmoothing: 0.28,
+      // A threshold below one means most of a sunlit scene is "bright" — the
+      // grass, the tarmac, the sky — so the bloom stopped being a highlight
+      // effect and became a coat of white over everything. It belongs above
+      // the diffuse range, where only things that are actually emitting or
+      // specular can reach it.
+      intensity: 0.42,
+      luminanceThreshold: 1.15,
+      luminanceSmoothing: 0.22,
       mipmapBlur: true,
       // A wider kernel is a longer mip chain, which on a phone is a handful
       // of extra full-screen passes for a glow nobody would pick out.
@@ -658,8 +677,10 @@ export class Renderer {
     // Enough to frame the image, not enough to make a night race unreadable.
     this.vignette = new VignetteEffect({ offset: 0.35, darkness: 0.26 });
 
-    // AgX trades saturation for highlight roll-off; a little of it back.
-    this.saturation = new HueSaturationEffect({ saturation: 0.08 });
+    // AgX trades saturation for highlight roll-off, and it trades a lot: a
+    // clear day was measuring 0.10 average saturation, which is very nearly
+    // a monochrome photograph of a race track.
+    this.saturation = new HueSaturationEffect({ saturation: 0.2 });
 
     // AgX holds highlights together far better than Reinhard on a scene lit
     // by a real HDRI, and keeps the sky from clipping to white.
@@ -832,7 +853,7 @@ export class Renderer {
    */
   setEnvironment({ envMap, background }, { groundRadius = 1900, groundHeight = 78 } = {}) {
     this.scene.environment = envMap;
-    this.scene.environmentIntensity = 1.15;
+    this.scene.environmentIntensity = 1;
     this.envMap = envMap;
 
     if (this.skybox) {
