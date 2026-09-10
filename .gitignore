@@ -8,3 +8,7 @@ dist-artifact/
 artifact/
 scratch/
 shots/
+
+# The F1 arrives as loose glTF with a 30 MB buffer and seventeen PNGs.
+# prepare-cars.mjs packs it into models/cars/f1.glb, and that is what ships.
+public/assets/models/cars/f1-src/

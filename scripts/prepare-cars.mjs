@@ -21,7 +21,7 @@
  *   node scripts/prepare-cars.mjs [--force] [--only urus]
  */
 
-import { readdir, writeFile } from 'node:fs/promises';
+import { readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -65,6 +65,43 @@ const RECIPES = {
     wheelPart: (mat) => ({ tire: 'tyre', alloy: 'rim', chrome: 'rim', black_matte: 'hub', black_paint: 'hub' })[mat] ?? 'hub',
     materials: { headlights: 'headlight', red_glass: 'brakelight', orange_glass: 'indicator' },
     simplify: { ratio: 0.55, error: 0.0008 },
+  },
+  // The grand prix car arrives as loose glTF at roughly twice life size, so
+  // this recipe both packs it and shrinks it. Scale is set from the wheelbase
+  // — 7.17 units between the axle centres against the real car's 3.60 m —
+  // which lands the track and the 720 mm wheels on their real dimensions too.
+  'f1.glb': {
+    source: 'f1-src/F1.gltf',
+    forward: '+z',
+    scale: 0.502,
+    // The cockpit is modelled down to the pedals, the seat belts and the
+    // legends on the steering wheel. None of it is visible from outside the
+    // car and all of it is triangles, so it goes.
+    dropMaterials: [
+      'gp21_pedals', 'gp21_cockpit_details', 'gp21_cockpit_metal', 'gp21_cockpit_pull',
+      'gp21_cinture', 'cockpit_legs_support', 'sf21_sw_buttons', 'sf21_sw_badges',
+      'gp21_LCD', 'GP21_CLEARLED', 'gp21_sw_carbon', 'gp21_sw_resin', 'buttons_brown2',
+      'sw_brown', 'cables_black', 'cables_red', 'cables_brown', 'gp21_bolt1',
+      'gp21_bolt2', 'gp21_bolt3', 'led_blue', 'led_red', 'led_green',
+    ],
+    // A second, motion-blurred copy of every wheel, meant for renders. Left
+    // in, it doubles the wheel geometry and z-fights with the real rim.
+    dropNodes: /^(RIM_BLUR|Camera)/i,
+    // Not \b after the corner: the next character is an underscore, which is
+    // a word character, so there is no boundary there to match.
+    wheelNodes: /^(WHEEL|RIM|TYRE|HUB)_(LF|RF|LR|RR)(_|$)/,
+    tyreMaterials: /^Wheels/i,
+    wheelPart: (mat, node) => {
+      if (/caliper/i.test(`${mat} ${node}`)) return 'caliper';
+      if (/^TYRE_/i.test(node) || /^Wheels/i.test(mat)) return 'tyre';
+      if (/nut|bolt/i.test(mat)) return 'hub';
+      return 'rim';
+    },
+    // The livery lives in the chassis texture, so the chassis material must
+    // *not* be called paint — the rig would replace it with a flat colour and
+    // the car would lose every sponsor on it. Only the rain light is renamed.
+    materials: { '2022_light': 'rearlight' },
+    simplify: { ratio: 0.22, error: 0.0009 },
   },
   'urus.glb': {
     forward: '+z',
@@ -190,12 +227,19 @@ function centroid(pos, tri, i, out) {
   return out;
 }
 
-/** Finds the four tyres and describes each wheel's cylinder. */
-function findWheels(doc, candidates) {
+/**
+ * Finds the four tyres and describes each wheel's cylinder.
+ *
+ * The tyres are located by material name, which is the one part of a model
+ * artists reliably label. `tyreRe` lets a recipe say what that label is when
+ * it is not one of the usual words — the grand prix car calls its rubber
+ * "Wheels".
+ */
+function findWheels(doc, candidates, tyreRe = TYRE_RE) {
   const points = [];
   for (const { prim } of candidates) {
     const mat = prim.getMaterial()?.getName() ?? '';
-    if (!TYRE_RE.test(mat)) continue;
+    if (!tyreRe.test(mat)) continue;
     const pos = prim.getAttribute('POSITION');
     const tri = trianglesOf(prim);
     const c = [0, 0, 0];
@@ -327,7 +371,7 @@ function extractWheels(doc, recipe) {
     }
   }
 
-  const wheels = findWheels(doc, candidates);
+  const wheels = findWheels(doc, candidates, recipe.tyreMaterials);
   const buckets = {};
   // Carve first, build the wheels from the sources, and only then cut the
   // moved triangles out of the sources — a source that gives everything to
@@ -371,11 +415,20 @@ function extractWheels(doc, recipe) {
 /* ------------------------------------------------------------------ main */
 
 async function prepare(file, recipe) {
-  const doc = await io.read(file);
+  // A recipe may name a loose glTF to pack: the .glb is this pass's output
+  // rather than its input, so there is nothing to skip on the first run.
+  const packing = recipe.source && !(await stat(file).catch(() => null));
+  const doc = await io.read(packing ? join(CARS, recipe.source) : file);
   const root = doc.getRoot();
   if (root.getAsset().extras?.apexPrepared && !FORCE) {
     console.log(`  ${file.split('/').pop().padEnd(20)} already prepared`);
     return;
+  }
+
+  if (recipe.dropNodes) {
+    for (const node of root.listNodes()) {
+      if (recipe.dropNodes.test(node.getName())) node.dispose();
+    }
   }
 
   bake(doc, recipe);
@@ -415,7 +468,10 @@ async function prepare(file, recipe) {
   console.log(`    materials: ${root.listMaterials().map((m) => m.getName()).join(', ')}`);
 }
 
-for (const name of (await readdir(CARS)).sort()) {
+// Every recipe, plus whatever else is in the directory — a recipe that packs
+// a loose source has no file of its own to be found by.
+const names = [...new Set([...(await readdir(CARS)), ...Object.keys(RECIPES)])].sort();
+for (const name of names) {
   const recipe = RECIPES[name];
   if (!recipe) continue;
   if (ONLY && !name.includes(ONLY)) continue;

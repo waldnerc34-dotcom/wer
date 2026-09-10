@@ -124,7 +124,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(
       `  tap ${tap.peakLatG.toFixed(2)} g · hold ${hold.peakLatG.toFixed(2)} g, slip ${hold.peakSlipDeg.toFixed(1)}°, swing back ${hold.counterSwingDeg.toFixed(0)}°/s · 160 km/h slip ${fast.peakSlipDeg.toFixed(1)}° · trail braking slip ${brake.peakSlipDeg.toFixed(1)}° · thumb ${thumb.peakLatG.toFixed(2)} g slip ${thumb.peakSlipDeg.toFixed(1)}°, slammed ${slam.peakSlipDeg.toFixed(1)}°`,
     );
-    check('a tap is a nudge, not a lane change', tap.peakLatG < 0.7 && tap.headingDeg < 5, `${tap.peakLatG.toFixed(2)} g, ${tap.headingDeg.toFixed(1)}°`);
+    // Against the car's own grip rather than an absolute number: a tap should
+    // spend a fraction of what the car has, and a grand prix car has three
+    // times what a road car has. Judging it in g alone would call correct
+    // behaviour a failure purely for having better tyres.
+    check(
+      'a tap is a nudge, not a lane change',
+      tap.peakLatG < hold.peakLatG * 0.6 && tap.headingDeg < 5,
+      `${tap.peakLatG.toFixed(2)} g of the ${hold.peakLatG.toFixed(2)} g it holds, ${tap.headingDeg.toFixed(1)}°`,
+    );
     check('a held key corners near the limit', hold.peakLatG > 0.85, `${hold.peakLatG.toFixed(2)} g`);
     check('the rear stays behind the front', hold.peakSlipDeg < 8 && fast.peakSlipDeg < 8, `${hold.peakSlipDeg.toFixed(1)}° / ${fast.peakSlipDeg.toFixed(1)}°`);
     check('a release straightens the car', hold.counterSwingDeg < 8 && fast.counterSwingDeg < 8, `swing back ${hold.counterSwingDeg.toFixed(0)}°/s / ${fast.counterSwingDeg.toFixed(0)}°/s`);

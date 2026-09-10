@@ -3,14 +3,14 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "APEX \u2014 a physically-based 3D racing simulator built on three.js",
+  "description": "APEX — a physically-based 3D racing simulator built on three.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host",
     "assets": "node scripts/fetch-assets.mjs && node scripts/prepare-cars.mjs && node scripts/gen-textures.mjs && node scripts/compress-textures.mjs && node scripts/optimize-assets.mjs",
     "assets:optimize": "node scripts/optimize-assets.mjs",
-    "test": "node tests/physics.test.mjs && node tests/ai.test.mjs && node tests/effects.test.mjs && node tests/controls.test.mjs && node tests/camera.test.mjs && node tests/layout.test.mjs && node tests/render.test.mjs && node tests/assist.test.mjs && node tests/racecraft.test.mjs && node tests/race.test.mjs && node tests/pacing.test.mjs && node tests/handling.test.mjs",
+    "test": "node tests/physics.test.mjs && node tests/ai.test.mjs && node tests/effects.test.mjs && node tests/controls.test.mjs && node tests/camera.test.mjs && node tests/layout.test.mjs && node tests/render.test.mjs && node tests/assist.test.mjs && node tests/racecraft.test.mjs && node tests/race.test.mjs && node tests/pacing.test.mjs && node tests/handling.test.mjs && node tests/net.test.mjs",
     "test:physics": "node tests/physics.test.mjs",
     "test:ai": "node tests/ai.test.mjs",
     "test:racecraft": "node tests/racecraft.test.mjs",
@@ -18,6 +18,7 @@
     "shots": "node tools/screenshot.mjs ./shots",
     "probe": "node tools/gfx-probe.mjs",
     "test:effects": "node tests/effects.test.mjs",
+    "test:net": "node tests/net.test.mjs",
     "assets:fetch": "node scripts/fetch-assets.mjs",
     "assets:cars": "node scripts/prepare-cars.mjs",
     "assets:textures": "node scripts/gen-textures.mjs && node scripts/compress-textures.mjs",
@@ -26,7 +27,7 @@
     "serve:artifact": "node tools/artifact-server.mjs",
     "test:controls": "node tests/controls.test.mjs",
     "test:camera": "node tests/camera.test.mjs",
-    "test:handling": "node tests/handling.test.mjs",
+    "test:handling": "node tests/handling.test.mjs && node tests/net.test.mjs",
     "start": "vite build && node tools/serve.mjs",
     "serve": "node tools/serve.mjs",
     "icons": "node tools/make-icons.mjs"
@@ -36,7 +37,8 @@
     "n8ao": "^2.0.1",
     "postprocessing": "^6.39.4",
     "three": "0.185.0",
-    "three-mesh-bvh": "^0.9.15"
+    "three-mesh-bvh": "^0.9.15",
+    "trystero": "^0.25.4"
   },
   "devDependencies": {
     "@gltf-transform/cli": "^4.2.1",

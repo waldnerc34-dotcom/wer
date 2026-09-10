@@ -9,6 +9,7 @@ public repository at a pinned commit (see `scripts/sources.mjs`).
 - Car Concept — The Khronos Group, CC BY 4.0
 - Engine, tyre and crash recordings — pmndrs/racing-game, CC0
 - Ferrari 458 Italia — vicent091036 (via three.js examples), CC BY 4.0
+- Ferrari F1-75 — Sketcher (sketchfab.com/sketcher987654321), CC BY-NC 4.0
 - Ferrari contact-shadow map — three.js examples, MIT
 - Grass normal — Babylon.js Assets, CC BY 4.0
 - Grass — Babylon.js Assets, CC BY 4.0
@@ -31,4 +32,5 @@ public repository at a pinned commit (see `scripts/sources.mjs`).
 - `babylon` — https://raw.githubusercontent.com/BabylonJS/Assets @ `8be9384c7f8728cb45d27975ac92a412f97a98dd`
 - `pmndrs` — https://raw.githubusercontent.com/pmndrs/examples @ `6ea1379e3163aa413970fea2e6b7b3e59b63d2c4`
 - `racing` — https://raw.githubusercontent.com/pmndrs/racing-game @ `7816a5d954b75e6ad853ae4e4f0cbbd628072643`
+- `lightexp` — https://raw.githubusercontent.com/rqphy/LightExperience @ `508317e2aa6227ae03e272ea491ae9ca5e160214`
 - `fonts` — https://raw.githubusercontent.com/google/fonts @ `334b789e33413f3aba4264d9aa6c97f7b94c5a2f`

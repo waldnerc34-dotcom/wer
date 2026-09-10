@@ -17,6 +17,20 @@ const DISC_RE = /\bdisc\b|\brotor\b/i;
 const CALIPER_RE = /brakepad|caliper|\bbrake\b/i;
 
 /**
+ * The material a named wheel part should wear, or null if the name says
+ * nothing. Order matters: "brake disc" is a disc, not a caliper.
+ */
+function wheelPart(mats, name) {
+  if (!name) return null;
+  if (/disc|rotor/i.test(name)) return mats.brakeDisc;
+  if (/brake|caliper|pad/i.test(name)) return mats.caliper;
+  if (/\btyre\b|\btire\b|rubber/i.test(name)) return mats.tyre;
+  if (/rim|spoke|alloy|wheel_(fl|fr|rl|rr)/i.test(name)) return mats.rim;
+  if (/nut|bolt|centre|center|hub|cap|logo|emblem/i.test(name)) return mats.trim;
+  return null;
+}
+
+/**
  * Binds a downloaded glTF car to the simulation.
  *
  * The models come from different sources with different scales, orientations
@@ -214,12 +228,16 @@ export class CarRig {
       if (!rig) continue;
       rig.hub.traverse((o) => {
         if (!o.isMesh) return;
-        const n = `${o.material?.name ?? ''} ${o.name ?? ''}`;
-        if (/rim|spoke|alloy|wheel_(fl|fr|rl|rr)/i.test(n)) o.material = mats.rim;
-        else if (/disc|rotor/i.test(n)) o.material = mats.brakeDisc;
-        else if (/brake|caliper|pad/i.test(n)) o.material = mats.caliper;
-        else if (/nut|bolt|centre|center|hub|cap|logo|emblem/i.test(n)) o.material = mats.trim;
-        else o.material = mats.tyre; // whatever is left on a hub is rubber
+        // The material name first, and only then the node name.
+        //
+        // prepare-cars.mjs names the material of every part exactly — tyre,
+        // rim, disc, hub — but puts all four primitives on one mesh called
+        // wheel_fl, and three names each of them after that mesh. Testing the
+        // two together let `wheel_fl` match the rim pattern for every part on
+        // the hub, so all three prepared cars were driving around on chrome
+        // tyres. The node name is still worth consulting for models that were
+        // never prepared, where it is all there is.
+        o.material = wheelPart(mats, o.material?.name) ?? wheelPart(mats, o.name) ?? mats.tyre;
         o.castShadow = true;
         o.receiveShadow = true;
       });

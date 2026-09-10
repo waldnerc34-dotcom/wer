@@ -14,9 +14,16 @@
  *
  *   ?wet=0.9&surface=0   spray on a wet road
  *   ?wet=0&surface=3     dust and stones out of a gravel trap
+ *   ?car=f175            park a car from the garage in front of the camera
+ *                        instead, rigged exactly as the game rigs it
  */
 import * as THREE from 'three';
 import { TyreEffects } from './src/render/Effects.js';
+import { Assets } from './src/core/Assets.js';
+import { Materials } from './src/render/Materials.js';
+import { CarRig } from './src/render/CarRig.js';
+import { CARS } from './src/physics/Vehicle.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
 const q = new URLSearchParams(location.search);
 const WET = Number(q.get('wet') ?? 0.9);
@@ -91,7 +98,9 @@ const vehicle = {
   wheels: [wheel('front', -1), wheel('front', 1), wheel('rear', -1), wheel('rear', 1)],
 };
 
-// A stand-in body, so the wake is read against something the size of a car.
+// A stand-in body, so the wake is read against something the size of a car —
+// unless a real one was asked for, in which case the car itself stands in.
+const CAR = q.get('car');
 const body = new THREE.Mesh(
   new THREE.BoxGeometry(1.9, 1.1, 4.4),
   new THREE.MeshStandardMaterial({ color: 0xb02a2a, roughness: 0.3, metalness: 0.1 }),
@@ -109,6 +118,43 @@ const effects = new TyreEffects(scene, materials, { particles: 900 });
 // Match what the weather would set in the game.
 effects.light = Number(q.get('light') ?? (WET > 0.4 ? 0.57 : 1));
 
+/* ------------------------------------------------------------- car viewer */
+
+if (CAR) {
+  const def = CARS.find((c) => c.id === CAR || c.model.includes(CAR)) ?? CARS[0];
+  const assets = new Assets(renderer);
+  const mats = new Materials();
+  await mats.load(assets);
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 1;
+  const rig = new CarRig(await assets.instance(def.model), def.spec, mats, { paint: def.paint });
+  scene.add(rig.group);
+  body.visible = false;
+  vehicle.wheels.forEach((w, i) => {
+    w.offset.set(
+      -w.side * (i < 2 ? def.spec.front.track : def.spec.rear.track) / 2,
+      0,
+      i < 2 ? def.spec.cogToFrontAxle : -def.spec.cogToRearAxle,
+    );
+  });
+  window.__lab = { ...window.__lab, rig, def };
+  // Pose it the way the game would: on the ground, wheels straight.
+  const posed = {
+    position: new THREE.Vector3(),
+    quaternion: new THREE.Quaternion(),
+    wheels: vehicle.wheels.map((w) => ({ ...w, steer: 0, spinAngle: 0, compression: 0 })),
+    telemetry: { steer: 0, throttle: 0, brake: 0, speed: 0 },
+    speed: 0,
+    controls: { throttle: 0, brake: 0, steer: 0 },
+  };
+  window.__labRig = () => {
+    posed.position.copy(vehicle.position);
+    rig.group.position.copy(vehicle.position);
+    rig.group.quaternion.copy(vehicle.quaternion);
+  };
+}
+
 let last = performance.now();
 let ready = 0;
 function frame(now) {
@@ -123,12 +169,19 @@ function frame(now) {
       + ((along - vehicle.position.z) % (BARS * BAR_GAP) + BARS * BAR_GAP) % (BARS * BAR_GAP);
   }
   body.position.copy(vehicle.position).setY(0.72);
+  window.__labRig?.();
   for (const w of vehicle.wheels) w.contact.copy(vehicle.position).add(w.offset);
 
   effects.update(vehicle, dt, camera);
 
-  camera.position.set(3.2, 2.4, vehicle.position.z - 12);
-  camera.lookAt(vehicle.position.x, 1, vehicle.position.z + 2);
+  if (CAR) {
+    // A three-quarter view from low down, close enough to read the car.
+    camera.position.set(3.1, 1.15, vehicle.position.z - 4.6);
+    camera.lookAt(vehicle.position.x, 0.45, vehicle.position.z);
+  } else {
+    camera.position.set(3.2, 2.4, vehicle.position.z - 12);
+    camera.lookAt(vehicle.position.x, 1, vehicle.position.z + 2);
+  }
   renderer.render(scene, camera);
   ready++;
   window.__labFrames = ready;

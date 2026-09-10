@@ -264,6 +264,55 @@ export const V8_NA = {
   diffLock: 46,
 };
 
+/**
+ * 1.6 V6 turbo hybrid, the modern grand prix engine.
+ *
+ * The internal combustion side makes a little over 800 hp; the electric motor
+ * on the crank adds around 160 more wherever the driver asks for it, and in
+ * this model the two are simply summed into one curve — the deployment rules
+ * that decide when the battery is willing are a season's worth of strategy
+ * and no fun to drive against. What matters here is the shape: almost nothing
+ * below 5 000, everything between 10 500 and the 15 000 limiter, and a
+ * gearbox that changes without lifting.
+ */
+export const V6_HYBRID = {
+  name: '1.6 V6 turbo hybrid',
+  cylinders: 6,
+  torqueCurve: [
+    [3000, 150],
+    [4500, 300],
+    [6000, 420],
+    [7500, 500],
+    [9000, 560],
+    [10500, 610],
+    [11500, 625],
+    [12500, 620],
+    [13500, 596],
+    [14500, 552],
+    [15000, 512],
+  ],
+  idleRpm: 4200,
+  stallRpm: 3600,
+  limiterRpm: 15000,
+  upshiftRpm: 14300,
+  downshiftRpm: 8600,
+  // Eight forward ratios. Eighth times the final drive puts the limiter at
+  // roughly 340 km/h, which is where a low-drag setup runs out of road.
+  gearRatios: [4.2, 3.4, 2.85, 2.45, 2.15, 1.94, 1.79, 1.667],
+  reverseRatio: 4.4,
+  finalDrive: 3.6,
+  // A seamless-shift gearbox has a second set of dogs already engaged, so
+  // torque never actually stops.
+  shiftTime: 0.02,
+  drivelineEfficiency: 0.94,
+  engineBrakeTorque: 58,
+  engineInertia: 0.13,
+  clutchCapacity: 1600,
+  clutchStiffness: 90,
+  diffPreload: 220,
+  diffLock: 72,
+};
+
 /** Twin-turbo V10 for the concept car: more torque, shorter gearing. */
 export const V10_TT = {
   name: '5.2 V10 TT',

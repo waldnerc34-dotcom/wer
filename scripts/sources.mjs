@@ -30,6 +30,12 @@ export const REPOS = {
     base: 'https://raw.githubusercontent.com/pmndrs/racing-game',
     sha: '7816a5d954b75e6ad853ae4e4f0cbbd628072643',
   },
+  // A three.js lighting study that happens to carry a complete, properly
+  // named grand prix car — wheels, hubs, brake ducts and all.
+  lightexp: {
+    base: 'https://raw.githubusercontent.com/rqphy/LightExperience',
+    sha: '508317e2aa6227ae03e272ea491ae9ca5e160214',
+  },
   // Google Fonts' repository of OFL typefaces.
   fonts: {
     base: 'https://raw.githubusercontent.com/google/fonts',
@@ -37,8 +43,57 @@ export const REPOS = {
   },
 };
 
+/** The texture set the F1's glTF references, by the names it uses. */
+const F1_TEXTURES = [
+  'carbon_baseColor',
+  'Wheels_TREAD_baseColor',
+  'Wheels_TREAD_normal',
+  'decals_baseColor',
+  'tvcam_baseColor',
+  'car_chassis_baseColor',
+  '2022_light_baseColor',
+  'gp21_cockpit_details_baseColor',
+  'gp21_pedals_baseColor',
+  'gp21_cockpit_pull_normal',
+  'cockpit_legs_support_normal',
+  'gp21_cinture_baseColor',
+  'gp21_cinture_normal',
+  'GP21_CLEARLED_baseColor',
+  'sf21_sw_buttons_baseColor',
+  'sf21_sw_badges_baseColor',
+  'gp21_LCD_baseColor',
+];
+
 /** repo, remote path, local path (relative to public/assets), credit */
 export const ASSETS = [
+  // ------------------------------------------------------------- the F1 ---
+  // This one arrives as loose glTF: a JSON file, a 30 MB buffer and seventeen
+  // PNGs. prepare-cars.mjs packs and shrinks it into models/cars/f1.glb, and
+  // only that is committed — public/assets/models/cars/f1-src is ignored.
+  {
+    repo: 'lightexp',
+    from: 'static/models/F1/gltf/F1.gltf',
+    to: 'models/cars/f1-src/F1.gltf',
+    credit: 'Ferrari F1-75 — Sketcher (sketchfab.com/sketcher987654321), CC BY-NC 4.0',
+  },
+  {
+    repo: 'lightexp',
+    from: 'static/models/F1/gltf/scene.bin',
+    to: 'models/cars/f1-src/scene.bin',
+    credit: 'Ferrari F1-75 — Sketcher (sketchfab.com/sketcher987654321), CC BY-NC 4.0',
+  },
+  {
+    repo: 'lightexp',
+    from: 'static/models/F1/license.txt',
+    to: 'models/cars/f1-src/license.txt',
+    credit: 'Ferrari F1-75 — Sketcher (sketchfab.com/sketcher987654321), CC BY-NC 4.0',
+  },
+  ...F1_TEXTURES.map((name) => ({
+    repo: 'lightexp',
+    from: `static/models/F1/gltf/textures/${name}.png`,
+    to: `models/cars/f1-src/textures/${name}.png`,
+    credit: 'Ferrari F1-75 — Sketcher (sketchfab.com/sketcher987654321), CC BY-NC 4.0',
+  })),
   // ---------------------------------------------------------------- cars ---
   {
     repo: 'three',

@@ -25,9 +25,20 @@ import { Track } from '../src/track/Track.js';
 import { CARS, Vehicle } from '../src/physics/Vehicle.js';
 
 const DT = 1 / 120;
+// Deliberately enormous. This is a test surface rather than a circuit, and it
+// has to be wide enough that no car reaches the edge of it during a
+// manoeuvre — a car that runs out of road is measuring the barrier rather
+// than its own handling. A grand prix car at 190 km/h holding full lock pulls
+// four and a half g and carves clean across an eighty-metre road, which is
+// what the first version of this was, and every number it produced after that
+// point was an impact.
+const WIDTH = 260;
 const OVAL = {
   id: 'oval', name: 'Test oval', hdri: 'x',
-  segments: [straight(1800, { width: 80 }), arc(220, 180, { width: 80 }), straight(1800, { width: 80 }), arc(220, 180, { width: 80 })],
+  segments: [
+    straight(2400, { width: WIDTH }), arc(420, 180, { width: WIDTH }),
+    straight(2400, { width: WIDTH }), arc(420, 180, { width: WIDTH }),
+  ],
 };
 let track = null;
 const oval = () => (track ??= new Track(OVAL));

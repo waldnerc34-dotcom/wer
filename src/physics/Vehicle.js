@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { approach, clamp, lerp, sign } from '../core/MathUtils.js';
 import { SURFACE_DRAG } from '../track/Track.js';
 import { Tyre, TYRE_SPECS } from './TireModel.js';
-import { Drivetrain, F6_TT, L6_RACE, V8_NA, V10_TT, V8_TT } from './Drivetrain.js';
+import { Drivetrain, F6_TT, L6_RACE, V6_HYBRID, V8_NA, V10_TT, V8_TT } from './Drivetrain.js';
 
 const GRAVITY = 9.81;
 const AIR_DENSITY = 1.225;
@@ -220,6 +220,40 @@ export class Vehicle {
   }
 
   /* ----------------------------------------------------------------- step */
+
+  /**
+   * Puts the wheels on the ground under a transform somebody else decided.
+   *
+   * A car driven over the network is not simulated here: its position and
+   * orientation arrive from the machine whose driver is actually steering it,
+   * and running physics on top of that would only fight them. But the rig
+   * still has to know where each wheel touches, and the tyre effects still
+   * want the surface under it, so this does the part of a step that reads the
+   * ground and none of the part that applies forces.
+   *
+   * @param {number} dt seconds, for spinning the wheels visually
+   */
+  settle(dt = 0) {
+    this.#updateMatrix();
+    for (const w of this.wheels) {
+      const mountWorld = _v.copy(w.mount).applyMatrix4(this.matrix);
+      w.worldPos.copy(mountWorld);
+      const q = this.track.query(mountWorld.x, mountWorld.z, this.query);
+      _n.set(q.nx, q.ny, q.nz);
+      w.surface = q.surface;
+
+      const drop = mountWorld.y - (q.height + w.radius);
+      w.prevLength = w.length;
+      w.length = clamp(drop, w.restLength - w.maxTravel, w.restLength + w.maxTravel);
+      w.grounded = drop <= w.restLength + w.maxTravel + 0.02;
+      w.compression = (w.restLength + w.maxTravel - w.length) / (2 * w.maxTravel);
+      w.contact.copy(mountWorld);
+      w.contact.y = q.height;
+      w.normal.copy(_n);
+      w.spin = (w.spin + w.omega * dt) % (Math.PI * 2);
+    }
+    this.groundedCount = this.wheels.filter((w) => w.grounded).length;
+  }
 
   /** Advances the simulation by `dt`, in fixed substeps. */
   update(dt, controls) {
@@ -1057,6 +1091,85 @@ export const CARS = [
         antiRoll: 4000,
         maxBrakeTorque: 1200,
         tyre: { mu: 1.1, alphaPeak: 0.14, kappaPeak: 0.1, relaxLat: 0.55 },
+      },
+    }),
+  },
+  {
+    id: 'f175',
+    name: 'Scuderia F1-75',
+    badge: '1.6 V6 hybrid · ground effect',
+    model: 'models/cars/f1.glb',
+    rig: 'f1',
+    // The livery is painted into the chassis texture, so there is no flat
+    // colour to set. A grand prix team runs two identical cars anyway.
+    paint: 0x9d0208,
+    spec: supercar({
+      mass: 798, // the regulation minimum, driver included
+      engine: V6_HYBRID,
+      wheelbase: 3.6,
+      frontWeightBias: 0.455,
+      // Everything about this car is lower, stiffer and shorter-travel than a
+      // road car: the floor only works if it stays where the aerodynamicist
+      // put it.
+      cogHeight: 0.29,
+      restLength: 0.095,
+      maxTravel: 0.035,
+      // A grand prix rack is far slower in angle and quicker in rate than a
+      // road car's — about 21° of lock, arrived at almost immediately.
+      maxSteerAngle: 0.42,
+      // Slicks give far less warning than road tyres: they peak at 7° of slip
+      // and fall away sharply past it, where a road tyre peaks at 9° and lets
+      // go gently. The margin of lock the driver is allowed past the limit is
+      // cut to match, or a flick of the stick asks for a spin.
+      steerLimitMargin: 0.035,
+      steerRate: 5.2,
+      // What the car can actually pull, which the tyre coefficient alone
+      // badly understates: at racing speed the wings are pressing down more
+      // than twice the car's own weight, and the lock the rack is allowed to
+      // give has to be sized against that rather than against the mass.
+      lateralLimit: 34,
+      // Stability control, re-tuned for a car that lets go quickly. It waits
+      // half as long before acting, applies more lock, and applies it faster.
+      escDeadBand: 0.045,
+      escCounterSteer: 1.55,
+      escSteerRate: 11,
+      escYawDamping: 9,
+      // The reference model is nearly neutral — an F1 car is not built to
+      // understeer its way out of trouble.
+      escUndersteer: 0.0009,
+      escUndersteerGain: 0.3,
+      // Ground effect. At 250 km/h this is roughly three times the car's own
+      // weight pressing it into the road, which is the whole point of it and
+      // the reason the cornering speeds look absurd from inside a road car.
+      dragArea: 1.35,
+      downforceFront: 3.6,
+      downforceRear: 4.4,
+      // Downforce does nothing at walking pace, so the AI is told to trust
+      // the car rather less than the tyre model alone would suggest.
+      aiGrip: 0.94,
+      inertia: { pitch: 1250, yaw: 1150, roll: 230 },
+      front: {
+        track: 1.62,
+        radius: 0.36, // 18-inch wheel, 720 mm overall
+        springRate: 185000,
+        bumpDamping: 11000,
+        reboundDamping: 15500,
+        antiRoll: 62000,
+        maxBrakeTorque: 5200,
+        // Slicks: more grip, and they find it at a smaller slip angle, which
+        // is what makes the car feel like it turns before you have finished
+        // asking.
+        tyre: { mu: 1.95, Fz0: 4000, By: 2.15, Cy: 1.44, alphaPeak: 0.125, inertia: 1.5 },
+      },
+      rear: {
+        track: 1.55,
+        radius: 0.36,
+        springRate: 205000,
+        bumpDamping: 12500,
+        reboundDamping: 17000,
+        antiRoll: 34000,
+        maxBrakeTorque: 3200,
+        tyre: { mu: 2.05, Fz0: 5000, By: 2.05, Cy: 1.4, alphaPeak: 0.135, inertia: 1.9 },
       },
     }),
   },

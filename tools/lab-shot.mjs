@@ -23,7 +23,17 @@ page.on('console', (m) => { if (m.type() === 'error') logs.push(m.text().slice(0
 page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
 
 await page.goto(`${URL}?${QS}`, { waitUntil: 'load', timeout: 90000 });
-await page.waitForFunction((n) => (window.__labFrames ?? 0) > n, FRAMES, { timeout: 240000 });
+try {
+  await page.waitForFunction((n) => (window.__labFrames ?? 0) > n, FRAMES, { timeout: 240000 });
+} catch (err) {
+  // A page that never draws has usually thrown, and the reason is far more
+  // useful than the timeout.
+  console.log(`only ${await page.evaluate(() => window.__labFrames ?? 0)} frame(s): ${err.message.split('\n')[0]}`);
+  if (logs.length) console.log('console:\n  ' + logs.slice(0, 8).join('\n  '));
+  await page.screenshot({ path: `shots/${NAME}.png` });
+  await browser.close();
+  process.exit(1);
+}
 const live = await page.evaluate(() => {
   const s = window.__lab.effects.smoke;
   let n = 0;
