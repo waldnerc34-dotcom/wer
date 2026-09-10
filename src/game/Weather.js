@@ -145,6 +145,9 @@ export class Weather {
 
     /* -- track ----------------------------------------------------------- */
     game.track.wetness = w.wet;
+    // Spray, dust and tyre smoke are unlit quads, so the weather has to tell
+    // them how bright the day is or they glow in a storm.
+    if (game.effects) game.effects.light = 0.35 + 0.65 * w.sky.exposure;
     game.pacing?.compute();
     game.racingLine?.refresh();
 

@@ -1,0 +1,139 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>APEX — particle lab</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}canvas{display:block}</style>
+<body>
+<script type="module">
+/*
+ * A bench for the tyre effects alone.
+ *
+ * The full game renders a frame a minute under software GL here, which makes
+ * it useless for looking at anything. This puts one car's worth of wheels on
+ * a plain ground plane with nothing else in the scene, so the wake can be
+ * photographed at a sensible frame rate and judged on its own.
+ *
+ *   ?wet=0.9&surface=0   spray on a wet road
+ *   ?wet=0&surface=3     dust and stones out of a gravel trap
+ */
+import * as THREE from 'three';
+import { TyreEffects } from './src/render/Effects.js';
+
+const q = new URLSearchParams(location.search);
+const WET = Number(q.get('wet') ?? 0.9);
+const SURFACE = Number(q.get('surface') ?? 0);
+const SPEED = Number(q.get('speed') ?? 46);
+const SLIP = Number(q.get('slip') ?? 1.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 0.88;
+document.body.append(renderer.domElement);
+
+const scene = new THREE.Scene();
+const sky = WET > 0.4 ? 0x59636e : 0x9db6cf;
+scene.background = new THREE.Color(sky);
+scene.fog = new THREE.Fog(sky, 40, 320);
+
+const sun = new THREE.DirectionalLight(0xfff2e0, WET > 0.4 ? 0.8 : 3.2);
+sun.position.set(-40, 60, -30);
+scene.add(sun, new THREE.HemisphereLight(0x9fb6d4, 0x4a4238, WET > 0.4 ? 1.2 : 0.4));
+
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(400, 2400),
+  new THREE.MeshStandardMaterial({
+    color: SURFACE === 0 ? 0x35383c : 0x6b6153,
+    roughness: WET > 0.4 && SURFACE === 0 ? 0.22 : 0.95,
+  }),
+);
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+// Lane markings down either side, so the eye can tell how fast the car and
+// its wake are moving. They wrap with the car, off to the sides, so nothing
+// ever sits between the camera and the wake.
+const BARS = 40;
+const BAR_GAP = 14;
+const bars = [];
+for (let i = 0; i < BARS * 2; i++) {
+  const bar = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.35, 5),
+    new THREE.MeshStandardMaterial({ color: 0xd8d8d8, roughness: 0.85 }),
+  );
+  bar.rotation.x = -Math.PI / 2;
+  bar.position.x = i % 2 ? 7.5 : -7.5;
+  bars.push(bar);
+  scene.add(bar);
+}
+
+const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 3000);
+
+/** Just enough of a car for the effects to read. */
+const wheel = (axle, side) => ({
+  grounded: true,
+  contact: new THREE.Vector3(),
+  normal: new THREE.Vector3(0, 1, 0),
+  offset: new THREE.Vector3(-side * 0.78, 0, axle === 'front' ? 1.5 : -1.4),
+  surface: SURFACE,
+  axle,
+  side,
+  slipSpeed: SLIP,
+  radius: 0.34,
+  tyre: { temp: 90 },
+});
+
+const vehicle = {
+  position: new THREE.Vector3(0, 0, 0),
+  velocity: new THREE.Vector3(0, 0, SPEED),
+  quaternion: new THREE.Quaternion(),
+  speed: SPEED,
+  track: { wetness: WET },
+  wheels: [wheel('front', -1), wheel('front', 1), wheel('rear', -1), wheel('rear', 1)],
+};
+
+// A stand-in body, so the wake is read against something the size of a car.
+const body = new THREE.Mesh(
+  new THREE.BoxGeometry(1.9, 1.1, 4.4),
+  new THREE.MeshStandardMaterial({ color: 0xb02a2a, roughness: 0.3, metalness: 0.1 }),
+);
+scene.add(body);
+
+const materials = {
+  smoke: new THREE.TextureLoader().load('assets/textures/smoke.webp'),
+  spark: new THREE.TextureLoader().load('assets/textures/spark.webp'),
+  skid: new THREE.TextureLoader().load('assets/textures/skid.webp'),
+};
+for (const t of Object.values(materials)) t.colorSpace = THREE.SRGBColorSpace;
+
+const effects = new TyreEffects(scene, materials, { particles: 900 });
+// Match what the weather would set in the game.
+effects.light = Number(q.get('light') ?? (WET > 0.4 ? 0.57 : 1));
+
+let last = performance.now();
+let ready = 0;
+function frame(now) {
+  // A fixed step: the point is what the wake looks like, not how fast this
+  // machine can draw it.
+  const dt = 1 / 60;
+  last = now;
+  vehicle.position.z += SPEED * dt;
+  for (let i = 0; i < bars.length; i++) {
+    const along = Math.floor(i / 2) * BAR_GAP;
+    bars[i].position.z = vehicle.position.z - 40
+      + ((along - vehicle.position.z) % (BARS * BAR_GAP) + BARS * BAR_GAP) % (BARS * BAR_GAP);
+  }
+  body.position.copy(vehicle.position).setY(0.72);
+  for (const w of vehicle.wheels) w.contact.copy(vehicle.position).add(w.offset);
+
+  effects.update(vehicle, dt, camera);
+
+  camera.position.set(3.2, 2.4, vehicle.position.z - 12);
+  camera.lookAt(vehicle.position.x, 1, vehicle.position.z + 2);
+  renderer.render(scene, camera);
+  ready++;
+  window.__labFrames = ready;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.__lab = { effects, vehicle };
+</script>

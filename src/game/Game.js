@@ -27,6 +27,14 @@ import { LapTimer } from './Timing.js';
 import { RaceControl } from './RaceControl.js';
 import { Weather } from './Weather.js';
 
+/**
+ * How far away a rival still throws a visible wake, and how many of them
+ * do at once. Beyond this the spray is a smear in the fog anyway, and the
+ * particle pool is better spent on the cars you are actually racing.
+ */
+const WAKE_RANGE = 85;
+const WAKE_CARS = 3;
+
 const PAINTS = [0x9d0208, 0x0b3d91, 0xf2f2f0, 0x111214, 0xd6a419, 0x1f6f4a, 0x6d28d9, 0xc2410c];
 
 /** The cars this build can actually load: the single-file build embeds a subset. */
@@ -62,6 +70,7 @@ export class Game {
     this.showRacingLine = readPref('apex.racingLine', true);
 
     this.opponents = [];
+    this.wakeRank = [];
     this.paused = false;
     this.running = false;
     this.mode = 'time-trial';
@@ -174,6 +183,8 @@ export class Game {
       particles: this.renderer.settings.particles ?? 700,
       skidSegments: this.renderer.settings.skidSegments ?? 900,
     });
+    // The weather was set before there was anything to tell.
+    this.effects.light = 0.35 + 0.65 * (this.weather.current?.sky.exposure ?? 1);
     this.camera = new ChaseCamera(this.renderer.camera, this.track);
     this.camera.reset(this.player);
     this.timer = new LapTimer(this.track);
@@ -433,6 +444,9 @@ export class Game {
 
     /* -- visuals ---------------------------------------------------------- */
     this.playerRig.update(player, dt);
+    // Rivals emit into the same pool, so they go in before the player's own
+    // update integrates and draws it.
+    this.#rivalWakes(dt);
     this.effects.update(player, dt, this.renderer.camera);
     this.scenery?.update(dt);
 
@@ -454,6 +468,45 @@ export class Game {
     this.audio.update(player, dt);
 
     this.onState?.(this.state());
+  }
+
+  /**
+   * Spray and thrown dirt from the cars around you.
+   *
+   * Only the player's car carries the full effects rig — rubber, tyre smoke,
+   * sparks. Rivals get the wake alone, and only the nearest few, fading out
+   * with distance so a pack up the road cannot spend the particle pool that
+   * the car alongside you needs. Without this a wet race has a wall of spray
+   * behind your own car and nothing at all behind the one you are chasing.
+   */
+  #rivalWakes(dt) {
+    if (!this.opponents.length) return;
+    const eye = this.renderer.camera.position;
+    const rank = this.wakeRank;
+    let n = 0;
+    for (const o of this.opponents) {
+      const d = o.vehicle.position.distanceTo(eye);
+      if (d >= WAKE_RANGE) continue;
+      const entry = (rank[n] ??= { vehicle: null, d: 0 });
+      entry.vehicle = o.vehicle;
+      entry.d = d;
+      n++;
+    }
+    // Nearest first. An insertion sort over a handful of cars, in place, so
+    // this costs nothing and allocates nothing after the first lap.
+    for (let i = 1; i < n; i++) {
+      const entry = rank[i];
+      let j = i - 1;
+      while (j >= 0 && rank[j].d > entry.d) {
+        rank[j + 1] = rank[j];
+        j--;
+      }
+      rank[j + 1] = entry;
+    }
+    for (let i = 0; i < n && i < WAKE_CARS; i++) {
+      const gain = clamp(1 - (rank[i].d - 15) / (WAKE_RANGE - 15), 0.12, 1) ** 1.5;
+      this.effects.wake(rank[i].vehicle, dt, gain);
+    }
   }
 
   /**
