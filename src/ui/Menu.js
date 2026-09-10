@@ -383,8 +383,8 @@ function guessQuality(touch) {
 
 function qualityNote(id) {
   return {
-    mobile: 'Phones and tablets',
-    low: 'No AO, fewer trees',
+    mobile: 'Bloom, haze and MSAA, sized to the phone',
+    low: 'Bloom and haze, no ambient occlusion',
     medium: 'AO, motion blur, SMAA',
     high: 'Ray-traced reflections',
     ultra: 'Renders at 4K, resolves down',

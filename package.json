@@ -15,6 +15,7 @@
     "test:ai": "node tests/ai.test.mjs",
     "test:racecraft": "node tests/racecraft.test.mjs",
     "shots": "node tools/screenshot.mjs ./shots",
+    "probe": "node tools/gfx-probe.mjs",
     "test:effects": "node tests/effects.test.mjs",
     "assets:fetch": "node scripts/fetch-assets.mjs",
     "assets:cars": "node scripts/prepare-cars.mjs",

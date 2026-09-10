@@ -145,7 +145,10 @@ export class Driver {
     this.ownPace = null;
     this.paceCovered = 0;
     this.paceWanted = 0;
-    this.paceTime = 0;
+    // Staggered, so that eleven drivers do not all land their measurement —
+    // and the whole-lap profile each one rebuilds off the back of it — on the
+    // same frame. A phone notices a dozen of those arriving together.
+    this.paceTime = Math.random() * PACE_WINDOW;
 
     /* -- racecraft --------------------------------------------------------- */
     /** The move being made, once committed to, or null. */

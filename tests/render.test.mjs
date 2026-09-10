@@ -39,8 +39,37 @@ for (const field of RISING) {
 }
 
 const effectsOn = (t) => ['ao', 'bloom', 'motionBlur', 'smaa'].filter((k) => QUALITY[t][k]).length;
-check('mobile spends nothing on post', QUALITY.mobile.post === false && effectsOn('mobile') === 0);
 check('quality and ultra run the full post chain', effectsOn('high') === 4 && effectsOn('ultra') === 4);
+
+// A phone gets a picture, not a placeholder. The chain it runs is the cheap
+// half of the list — tone mapping, bloom and haze all merge into one
+// full-screen pass — and pointedly not the expensive half: ambient occlusion
+// is its own pass, reflections need a second run over the geometry, and
+// motion blur is seven texture reads a pixel.
+check(
+  'the phone tier renders a picture rather than a placeholder',
+  QUALITY.mobile.post !== false && QUALITY.mobile.bloom && Boolean(QUALITY.mobile.atmosphere),
+);
+check(
+  'and buys it without the passes a phone cannot afford',
+  !QUALITY.mobile.ao && !QUALITY.mobile.reflections && !QUALITY.mobile.motionBlur,
+);
+check(
+  'every tier is anti-aliased, one way or the other',
+  TIERS.every((t) => QUALITY[t].smaa || QUALITY[t].msaa),
+  TIERS.map((t) => (QUALITY[t].smaa ? 'SMAA' : `${QUALITY[t].msaa}× MSAA`)).join(' · '),
+);
+check(
+  'the phone tier caps what it will ever be asked to draw',
+  QUALITY.mobile.maxPixels > 0 && QUALITY.mobile.maxPixels <= 3.5e6,
+  `${(QUALITY.mobile.maxPixels / 1e6).toFixed(1)} megapixels`,
+);
+check(
+  'and can give up more resolution, faster, than any other tier',
+  TIERS.every((t) => t === 'mobile' || QUALITY.mobile.minScale <= QUALITY[t].minScale) &&
+    QUALITY.mobile.scalerWindow < 30,
+  `floor ${QUALITY.mobile.minScale}, decides every ${QUALITY.mobile.scalerWindow} frames`,
+);
 
 console.log('\n=== reflections ===');
 check('ray tracing is off below Quality', !QUALITY.mobile.reflections && !QUALITY.low.reflections && !QUALITY.medium.reflections);
@@ -101,6 +130,15 @@ for (const [name, w, h, dpr] of [
 ]) {
   const mp = megapixels(ceilingRatio(QUALITY.ultra, w, h, dpr), w, h);
   check(`Ultra stays inside its budget on ${name}`, mp <= 8.4 + 0.01, `${mp.toFixed(1)} megapixels`);
+}
+
+for (const [name, w, h, dpr] of [
+  ['a phone', 390, 844, 3],
+  ['a big phone', 430, 932, 3],
+  ['a tablet', 1366, 1024, 2],
+]) {
+  const mp = megapixels(ceilingRatio(QUALITY.mobile, w, h, dpr), w, h);
+  check(`the phone tier stays inside its budget on ${name}`, mp <= 3.2 + 0.01, `${mp.toFixed(2)} megapixels`);
 }
 
 check('Quality stays at the display resolution', width(nativeRatio(QUALITY.high, 1), 1920) === 1920);

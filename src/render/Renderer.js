@@ -48,55 +48,81 @@ export const QUALITY = {
     label: 'Mobile',
     // Phones ship 3× screens. Native resolution would spend the whole GPU
     // budget on pixels nobody can see, but capping at 1× reads as a smear on
-    // a Retina panel. 2× capped and scaled to 0.75 lands at 1.5 device
-    // pixels per CSS pixel — crisp, at half the cost of native.
+    // a Retina panel. 2× capped and scaled lands a little over 1.5 device
+    // pixels per CSS pixel — crisp, at not much over half the cost of native.
     pixelRatio: 2,
-    renderScale: 0.75,
+    renderScale: 0.78,
+    // And a hard ceiling for the tablets: a 13" iPad at 2× would otherwise
+    // ask a phone-class GPU for five megapixels of half-float buffers.
+    maxPixels: 3.2e6,
     shadows: true,
-    shadowMapSize: 1024,
+    shadowMapSize: 2048,
     cascades: 2,
-    shadowDistance: 140,
+    shadowDistance: 300,
     ao: false,
-    bloom: false,
+    bloom: true,
+    bloomKernel: 'medium',
     motionBlur: false,
     smaa: false,
-    // No post chain at all: tone mapping happens in the main pass and the
-    // hardware does the anti-aliasing. Mobile GPUs are tile-based, so MSAA
-    // there is close to free, while a half-float composer is anything but.
-    post: false,
+    // Hardware multisampling instead of SMAA. The GPU in a phone is a tiler:
+    // the samples never leave on-chip memory, so resolving them is close to
+    // free, while SMAA is a second full-screen pass with a dependent texture
+    // read per pixel — which is exactly the thing a phone cannot spare.
+    msaa: 4,
+    // There *is* a post chain here now. Leaving it out was the wrong trade:
+    // it saved one full-screen pass and cost the tone mapping, the bloom and
+    // the haze — which is to say most of what makes the picture look like
+    // anything. What it buys back is spent on pixels instead, where the
+    // scaler can give them up frame by frame when the phone is struggling.
+    post: true,
     anisotropy: 8,
-    sceneryDensity: 0.35,
-    particles: 220,
-    skidSegments: 320,
-    skyResolution: 24,
+    sceneryDensity: 0.6,
+    particles: 420,
+    skidSegments: 560,
+    // Set outright rather than left to the "small preset" rule of thumb,
+    // which keys off the particle count and would have tripled the rain the
+    // moment the count went up.
+    rainCount: 1600,
+    splashCount: 260,
+    skyResolution: 48,
     reflections: false,
-    // No post chain on a phone, so the haze is the material's own fog.
-    atmosphere: false,
+    atmosphere: { samples: 8 },
     dynamicResolution: true,
     targetFps: 60,
-    minScale: 0.6,
+    // Room to go a long way down, and a short window so it gets there in a
+    // third of a second. A phone that has to drop to half resolution for the
+    // eleven-car braking zone and take it back on the straight is doing
+    // exactly what it should; one that judders through it is not.
+    minScale: 0.5,
+    scalerWindow: 20,
   },
   low: {
     label: 'Performance',
     pixelRatio: 1.5,
     shadows: true,
-    shadowMapSize: 1024,
+    shadowMapSize: 2048,
     cascades: 2,
-    shadowDistance: 240,
+    shadowDistance: 340,
     ao: false,
     bloom: true,
+    bloomKernel: 'medium',
     motionBlur: false,
     smaa: false,
+    msaa: 2,
     // The road at a grazing angle is most of the screen, and anisotropic
     // filtering is the cheapest thing that fixes it. Phones were getting 8
     // while this tier got 4, which is backwards.
     anisotropy: 8,
-    sceneryDensity: 0.35,
+    sceneryDensity: 0.7,
+    particles: 520,
+    skidSegments: 700,
+    skyResolution: 48,
     reflections: false,
     atmosphere: { samples: 12 },
     dynamicResolution: true,
     targetFps: 60,
-    minScale: 0.62,
+    minScale: 0.55,
+    scalerWindow: 24,
   },
   medium: {
     label: 'Balanced',
@@ -104,19 +130,20 @@ export const QUALITY = {
     shadows: true,
     shadowMapSize: 2048,
     cascades: 3,
-    shadowDistance: 400,
+    shadowDistance: 450,
     ao: true,
     aoQuality: 'low',
     bloom: true,
     motionBlur: true,
     smaa: true,
     anisotropy: 8,
-    sceneryDensity: 0.7,
+    sceneryDensity: 0.85,
+    skyResolution: 48,
     reflections: false,
     atmosphere: { samples: 16 },
     dynamicResolution: true,
     targetFps: 60,
-    minScale: 0.65,
+    minScale: 0.6,
   },
   high: {
     label: 'Quality',
@@ -125,6 +152,7 @@ export const QUALITY = {
     shadowMapSize: 4096,
     cascades: 4,
     shadowDistance: 620,
+    skyResolution: 48,
     ao: true,
     aoQuality: 'medium',
     bloom: true,
@@ -269,6 +297,7 @@ export class Renderer {
       target: this.settings.targetFps ?? 60,
       min: this.settings.minScale ?? 0.65,
       max: 1,
+      window: this.settings.scalerWindow ?? 30,
     });
     this.scaler.setEnabled(this.settings.dynamicResolution !== false);
     this.#applyResolution();
@@ -444,7 +473,11 @@ export class Renderer {
     const s = this.settings;
     this.composer = new EffectComposer(this.renderer, {
       frameBufferType: THREE.HalfFloatType,
-      multisampling: 0,
+      // Multisampling on the input buffer, for the tiers that have no SMAA
+      // pass. On a phone this is the cheapest anti-aliasing available and on
+      // a desktop it costs a blit; either way it is better than the jagged
+      // barriers a bare render gives.
+      multisampling: s.msaa ?? 0,
     });
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
@@ -473,7 +506,9 @@ export class Renderer {
       luminanceThreshold: 0.78,
       luminanceSmoothing: 0.28,
       mipmapBlur: true,
-      kernelSize: KernelSize.LARGE,
+      // A wider kernel is a longer mip chain, which on a phone is a handful
+      // of extra full-screen passes for a glow nobody would pick out.
+      kernelSize: s.bloomKernel === 'medium' ? KernelSize.MEDIUM : KernelSize.LARGE,
     });
 
     this.speedBlur = new SpeedBlurEffect();
