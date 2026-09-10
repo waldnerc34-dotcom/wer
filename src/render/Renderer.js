@@ -19,6 +19,7 @@ import {
 import { N8AOPostPass } from 'n8ao';
 
 import { RainDropsEffect, RainDropsOverlay, RainOnLens } from './RainDrops.js';
+import { AtmosphereEffect } from './Atmosphere.js';
 import { ReflectionsEffect } from './Reflections.js';
 import { ResolutionScaler } from './Resolution.js';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
@@ -69,6 +70,8 @@ export const QUALITY = {
     skidSegments: 320,
     skyResolution: 24,
     reflections: false,
+    // No post chain on a phone, so the haze is the material's own fog.
+    atmosphere: false,
     dynamicResolution: true,
     targetFps: 60,
     minScale: 0.6,
@@ -90,6 +93,7 @@ export const QUALITY = {
     anisotropy: 8,
     sceneryDensity: 0.35,
     reflections: false,
+    atmosphere: { samples: 12 },
     dynamicResolution: true,
     targetFps: 60,
     minScale: 0.62,
@@ -109,6 +113,7 @@ export const QUALITY = {
     anisotropy: 8,
     sceneryDensity: 0.7,
     reflections: false,
+    atmosphere: { samples: 16 },
     dynamicResolution: true,
     targetFps: 60,
     minScale: 0.65,
@@ -130,6 +135,7 @@ export const QUALITY = {
     // Reflections at half-resolution normals: the extra geometry pass is the
     // cost, and half-res normals are plenty for a road surface.
     reflections: { steps: 20, refinements: 3, maxDistance: 70, normalScale: 0.5 },
+    atmosphere: { samples: 24 },
     dynamicResolution: true,
     targetFps: 60,
     minScale: 0.68,
@@ -137,12 +143,18 @@ export const QUALITY = {
   ultra: {
     label: 'Ultra · 4K',
     pixelRatio: 2,
-    // Render above the display and resolve down. On a 1080p monitor this is
-    // a 4K frame buffer; on a 4K one it is 4K natively, with the scale left
-    // where the preset puts it.
-    renderScale: 1.25,
+    // Render above the display and resolve down — but only once the machine
+    // has shown it can. The frame starts at the display's own resolution and
+    // climbs toward 4K while frames stay inside budget, so a GPU that cannot
+    // afford half a gigabyte of 4K buffers never allocates them.
     superSampleTo: 3840,
     maxRenderScale: 2,
+    // A hard ceiling on the frame buffer, whatever the display. 4K is
+    // 8.3 megapixels; the chain behind it — two half-float composer buffers,
+    // the normal pass, ambient occlusion, anti-aliasing — costs several
+    // hundred megabytes at that size, and asking for more is how a context
+    // is lost.
+    maxPixels: 8.4e6,
     shadows: true,
     shadowMapSize: 4096,
     cascades: 4,
@@ -158,6 +170,7 @@ export const QUALITY = {
     skidSegments: 1500,
     skyResolution: 64,
     reflections: { steps: 40, refinements: 5, maxDistance: 120, normalScale: 1 },
+    atmosphere: { samples: 40 },
     dynamicResolution: true,
     targetFps: 60,
     minScale: 0.7,
@@ -255,6 +268,24 @@ export class Renderer {
     this.scaler.setEnabled(this.settings.dynamicResolution !== false);
     this.#applyResolution();
 
+    // A lost context is otherwise a black canvas with the sound still
+    // playing: the DOM is fine, so nothing looks wrong except the game.
+    this.contextLost = false;
+    canvas.addEventListener('webglcontextlost', (event) => {
+      event.preventDefault();
+      this.contextLost = true;
+      // Whatever it was, it was too much. Come back at the smallest frame
+      // this preset allows, and let the scaler earn its way up again.
+      this.scaler.scale = this.scaler.min;
+      console.error('APEX: the WebGL context was lost — dropping to the lowest resolution.');
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      this.contextLost = false;
+      this.#applyResolution();
+      this.resize();
+      console.warn('APEX: the WebGL context is back.');
+    });
+
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.15, 6000);
 
@@ -276,21 +307,49 @@ export class Renderer {
    * its say. Supersampling targets are met by raising the scale until the
    * frame buffer is wide enough, which is what makes Ultra 4K on any panel.
    */
-  #baseScale() {
+  /** The CSS size of the canvas, which is what a pixel ratio multiplies. */
+  #cssSize() {
+    return {
+      width: this.canvas.clientWidth || window.innerWidth || 1280,
+      height: this.canvas.clientHeight || window.innerHeight || 720,
+    };
+  }
+
+  /** Device pixels per CSS pixel at the display's own resolution. */
+  #nativeRatio() {
+    return Math.min(devicePixelRatio || 1, this.settings.pixelRatio) * (this.settings.renderScale ?? 1);
+  }
+
+  /**
+   * The most this preset may ever draw. Supersampling raises it toward the
+   * `superSampleTo` width, and the megapixel budget caps it: a 4K monitor
+   * asking for 1.25× would be 13 megapixels, and the buffers behind that do
+   * not fit on a lot of hardware.
+   */
+  #ceilingRatio() {
     const s = this.settings;
-    const dpr = Math.min(devicePixelRatio || 1, s.pixelRatio);
-    let scale = s.renderScale ?? 1;
+    const native = this.#nativeRatio();
+    const { width, height } = this.#cssSize();
+    let ratio = native;
     if (s.superSampleTo) {
-      const cssWidth = this.canvas.clientWidth || window.innerWidth || 1280;
-      const needed = s.superSampleTo / Math.max(1, cssWidth * dpr);
-      scale = clamp(Math.max(scale, needed), scale, s.maxRenderScale ?? 2);
+      ratio = Math.max(native, s.superSampleTo / Math.max(1, width));
+      ratio = Math.min(ratio, native * (s.maxRenderScale ?? 2));
     }
-    return dpr * scale;
+    if (s.maxPixels) {
+      ratio = Math.min(ratio, Math.sqrt(s.maxPixels / Math.max(1, width * height)));
+    }
+    return Math.max(0.1, ratio);
   }
 
   /** Pushes the current resolution decision into the renderer's buffers. */
   #applyResolution() {
-    const ratio = this.#baseScale() * (this.scaler?.scale ?? 1);
+    const native = this.#nativeRatio();
+    const ceiling = this.#ceilingRatio();
+    // The scaler works in multiples of the display's own resolution, so it
+    // is allowed above 1 exactly as far as the ceiling permits.
+    this.scaler?.setBounds(this.settings.minScale ?? 0.65, Math.max(1, ceiling / native));
+    const wanted = this.scaler?.enabled === false ? ceiling : native * (this.scaler?.scale ?? 1);
+    const ratio = clamp(wanted, 0.1, ceiling);
     if (Math.abs(ratio - this.renderer.getPixelRatio()) < 1e-3) return false;
     this.renderer.setPixelRatio(ratio);
     return true;
@@ -367,6 +426,7 @@ export class Renderer {
     this.sun.color.set(color);
     this.sun.intensity = intensity;
     this.sunDirection = dir;
+    this.atmosphere?.setSun(dir, color);
   }
 
   /* ------------------------------------------------------------- post chain */
@@ -415,6 +475,8 @@ export class Renderer {
       this.reflections.normalBuffer = this.normalPass.texture;
     }
 
+    if (s.atmosphere) this.atmosphere = new AtmosphereEffect(this.camera, s.atmosphere);
+
     this.chromatic = new ChromaticAberrationEffect({
       offset: new THREE.Vector2(0.00022, 0.00022),
       radialModulation: true,
@@ -443,6 +505,10 @@ export class Renderer {
     // Reflections first: they are part of the image, so everything after —
     // the bloom, the blur, the drops on the glass — sees them.
     if (this.reflections) effects.push(this.reflections);
+    // Haze sits on top of the scene and under everything the camera does to
+    // it, so the bloom blooms the shafts and the drops on the glass refract
+    // an already-hazy world.
+    if (this.atmosphere) effects.push(this.atmosphere);
     if (s.motionBlur) effects.push(this.speedBlur);
     if (s.bloom) effects.push(this.bloom);
     effects.push(this.rainDrops, this.chromatic, this.vignette, this.saturation, this.toneMapping, this.grain);
@@ -502,8 +568,22 @@ export class Renderer {
     this.skybox.position.set(position.x, this.skyboxY ?? 0, position.z);
   }
 
-  setFog(color, near, far) {
-    this.scene.fog = new THREE.Fog(color, near, far);
+  /**
+   * Sets the haze. With the atmosphere pass the scene's own fog is switched
+   * off: fogging twice, once per material and once in post, doubles it.
+   *
+   * @param {THREE.Color} color
+   * @param {number} near  metres at which haze becomes visible
+   * @param {number} far   metres at which it is nearly opaque
+   * @param {object} [look] scatter, shafts and height, see AtmosphereEffect
+   */
+  setFog(color, near, far, look) {
+    if (this.atmosphere) {
+      this.scene.fog = null;
+      this.atmosphere.setFog(color, near, far, look);
+    } else {
+      this.scene.fog = new THREE.Fog(color, near, far);
+    }
   }
 
   resize() {
@@ -552,6 +632,7 @@ export class Renderer {
   }
 
   render(dt) {
+    if (this.contextLost) return;
     // Trade pixels for frame rate, or take them back when there is room.
     if (this.scaler.frame(dt) !== null) {
       this.#applyResolution();

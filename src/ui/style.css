@@ -683,6 +683,21 @@ html, body {
 .toggle[aria-pressed="true"] .sw::after { transform: translateX(16px); }
 .toggle[aria-pressed="true"]::after { display: none; }
 
+.autobrake {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+  background: rgba(10, 13, 19, 0.6);
+  border: 1px solid rgba(244, 212, 58, 0.35);
+  border-radius: 999px;
+  padding: 3px 10px;
+  margin-top: 5px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.autobrake.on { opacity: 1; }
+
 .legend { display: flex; gap: 16px; align-items: center; font-family: var(--sans); font-size: 13px; color: var(--ink-dim); margin: 6px 0 16px; letter-spacing: 0.04em; }
 .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-right: 6px; vertical-align: -2px; }
 

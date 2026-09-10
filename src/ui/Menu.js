@@ -1,6 +1,7 @@
 import { Assets } from '../core/Assets.js';
 import { CIRCUITS, buildCentreline } from '../track/Layout.js';
 import { CARS } from '../physics/Vehicle.js';
+import { ASSIST_LEVELS } from '../game/Assist.js';
 import { WEATHERS } from '../game/Weather.js';
 import { QUALITY } from '../render/Renderer.js';
 import { formatLap } from '../game/Timing.js';
@@ -21,6 +22,10 @@ export class Menu {
       circuitId: CIRCUITS[0].id,
       carId: cars[0].id,
       mode: 'time-trial',
+      // Braking help starts on: knowing where to brake is the thing a
+      // circuit teaches last, and the arrows plus a car that brakes for you
+      // is how someone learns it without spending a session in the gravel.
+      assist: 'high',
       quality: guessQuality(touch),
       // Three AI cars is plenty for a phone's CPU; five on a desktop.
       opponents: touch ? 3 : 5,
@@ -78,6 +83,7 @@ export class Menu {
       <section class="field" data-field="car"><header><label>Car</label><span data-sub></span></header><div class="choices cards"></div></section>
       <section class="field" data-field="circuit"><header><label>Circuit</label><span data-sub></span></header><div class="choices outlines"></div></section>
       <section class="field" data-field="weather"><header><label>Weather</label><span data-sub></span></header><div class="choices chips"></div></section>
+      <section class="field" data-field="assist"><header><label>Braking help</label><span data-sub></span></header><div class="choices seg"></div></section>
       <div class="row2">
         <section class="field" data-field="mode"><label>Session</label><div class="choices seg"></div></section>
         <section class="field" data-field="quality"><label>Graphics</label><div class="choices seg"></div></section>
@@ -120,6 +126,12 @@ export class Menu {
       note: w.note,
       svg: GLYPHS[w.id] ?? GLYPHS.clear,
     })), (v) => (this.selection.weather = v), this.selection.weather);
+
+    this.#choices(picker, 'assist', 'seg', ASSIST_LEVELS.map((a) => ({
+      id: a.id,
+      label: a.label,
+      note: a.note,
+    })), (v) => (this.selection.assist = v), this.selection.assist);
 
     this.#choices(picker, 'mode', 'seg', [
       { id: 'time-trial', label: 'Time trial', note: 'Empty circuit, chase the clock' },
@@ -240,13 +252,14 @@ export class Menu {
 
   /* ----------------------------------------------------------------- pause */
 
-  showPause({ onResume, onRestart, onQuit, state, assists, onToggleAssist }) {
+  showPause({ onResume, onRestart, onQuit, state, assists, onToggleAssist, onAssistLevel }) {
     this.clear();
     const screen = el('div', 'screen');
     const card = el('div', 'card');
     card.innerHTML = `
       <h1 class="wordmark">Paused</h1>
       <p class="tagline">${state.carName} · ${state.trackName} · ${state.weather ?? ''}</p>
+      <div class="field" data-field="assist"><header><label>Braking help</label><span data-sub></span></header><div class="choices seg"></div></div>
       <div class="field" data-field="assists"><label>Driver aids</label><div class="choices seg"></div></div>
       <p class="legend"><span><i style="background:#5ef08a"></i>accelerate</span><span><i style="background:#f4d43a"></i>ease off</span><span><i style="background:#ff5a4a"></i>brake</span></p>
       <div class="actions">
@@ -255,7 +268,13 @@ export class Menu {
         <button class="btn ghost" data-quit>Change car / circuit</button>
       </div>`;
 
-    const host = card.querySelector('.choices');
+    this.#choices(card, 'assist', 'seg', ASSIST_LEVELS.map((a) => ({
+      id: a.id,
+      label: a.label,
+      note: a.note,
+    })), (v) => onAssistLevel?.(v), state.assist ?? 'high');
+
+    const host = card.querySelector('[data-field="assists"] .choices');
     const toggles = [
       ['abs', 'ABS'],
       ['tractionControl', 'Traction control'],

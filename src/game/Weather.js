@@ -21,7 +21,7 @@ export const WEATHERS = [
     env: 1,
     sun: { intensity: 1, color: 0xfff2e0 },
     hemi: 0.28,
-    fog: { color: 0xa8bacd, near: 620, far: 3400 },
+    fog: { color: 0xa8bacd, near: 620, far: 3400, scatter: 0.95, shafts: 0.5, height: 110 },
     rain: 0,
     wind: 0.55,
     headlights: false,
@@ -36,7 +36,7 @@ export const WEATHERS = [
     env: 0.75,
     sun: { intensity: 0.3, color: 0xe8ecf2 },
     hemi: 0.4,
-    fog: { color: 0xa9b1ba, near: 480, far: 2600 },
+    fog: { color: 0xa9b1ba, near: 480, far: 2600, scatter: 0.35, shafts: 0.12, height: 140 },
     rain: 0,
     wind: 0.8,
     headlights: false,
@@ -51,7 +51,7 @@ export const WEATHERS = [
     env: 0.55,
     sun: { intensity: 0.16, color: 0xd8dfe8 },
     hemi: 0.42,
-    fog: { color: 0x8b95a3, near: 200, far: 1500 },
+    fog: { color: 0x8b95a3, near: 200, far: 1500, scatter: 0.3, shafts: 0.06, height: 80 },
     rain: 1,
     wind: 1.0,
     headlights: true,
@@ -66,7 +66,7 @@ export const WEATHERS = [
     env: 0.4,
     sun: { intensity: 0.07, color: 0xc4ccd8 },
     hemi: 0.36,
-    fog: { color: 0x6e7681, near: 110, far: 900 },
+    fog: { color: 0x6e7681, near: 110, far: 900, scatter: 0.2, shafts: 0.0, height: 60 },
     rain: 2,
     wind: 1.7,
     headlights: true,
@@ -81,7 +81,7 @@ export const WEATHERS = [
     env: 0.6,
     sun: { intensity: 0.12, color: 0xe4e8ee },
     hemi: 0.45,
-    fog: { color: 0xb9c0c8, near: 55, far: 420 },
+    fog: { color: 0xb9c0c8, near: 55, far: 420, scatter: 0.55, shafts: 0.2, height: 22 },
     rain: 0,
     wind: 0.3,
     headlights: true,
@@ -96,7 +96,7 @@ export const WEATHERS = [
     env: 0.16,
     sun: { intensity: 0.035, color: 0x8fa8ff },
     hemi: 0.05,
-    fog: { color: 0x05070c, near: 160, far: 1600 },
+    fog: { color: 0x05070c, near: 160, far: 1600, scatter: 0.08, shafts: 0.0, height: 90 },
     rain: 0,
     wind: 0.4,
     headlights: true,
@@ -137,7 +137,7 @@ export class Weather {
     game.renderer.scene.environmentIntensity = w.env;
     game.renderer.setSun(game.circuit.sunAzimuth, game.circuit.sunElevation, w.sun.color, 3.1 * w.sun.intensity);
     game.renderer.hemi.intensity = w.hemi;
-    game.renderer.setFog(new THREE.Color(w.fog.color), w.fog.near, w.fog.far);
+    game.renderer.setFog(new THREE.Color(w.fog.color), w.fog.near, w.fog.far, w.fog);
 
     /* -- track ----------------------------------------------------------- */
     game.track.wetness = w.wet;
@@ -243,6 +243,9 @@ export class Weather {
   #wetMaterials(wet) {
     const mats = this.game.materials;
     mats.wetUniform.value = wet;
+    // Ripples only while it is actually falling: a road that stays wet after
+    // the rain stops is still, and standing water in a downpour is not.
+    mats.rainUniform.value = Math.min(1, (this.current?.rain ?? 0) * 0.7);
     mats.road.envMapIntensity = lerp(0.55, 1.35, wet);
 
     const dress = (m, { rough = 0.4, dark = 0.62 } = {}) => {

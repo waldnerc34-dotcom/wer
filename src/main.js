@@ -132,6 +132,7 @@ function pause() {
       invertSteer: game.input.invertSteer,
       racingLine: game.showRacingLine,
     },
+    onAssistLevel: (level) => game.setAssist(level),
     onToggleAssist: (key, value) => {
       if (key === 'invertSteer') game.input.setInvertSteer(value);
       else if (key === 'racingLine') game.setRacingLine(value);

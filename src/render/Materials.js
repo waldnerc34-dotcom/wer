@@ -13,6 +13,9 @@ export class Materials {
     this.all = [];
     // 0 dry … 1 soaked; shared by every surface shader that reacts to rain.
     this.wetUniform = { value: 0 };
+    // How hard it is raining, and a clock — the road's puddles ripple.
+    this.rainUniform = { value: 0 };
+    this.rippleTime = { value: 0 };
   }
 
   async load(assets) {
@@ -71,7 +74,7 @@ export class Materials {
       envMapIntensity: 0.55,
       dithering: true,
     });
-    patchWear(this.road, this.wetUniform);
+    patchWear(this.road, this.wetUniform, this.rainUniform, this.rippleTime);
 
     this.kerb = new THREE.MeshStandardMaterial({
       map: kerbMap,
@@ -255,9 +258,21 @@ export class Materials {
  * collects in the low spots of the roughness map — those go mirror-smooth
  * while the crown of the road stays merely damp.
  */
-function patchWear(material, wet = { value: 0 }) {
+/**
+ * Rubber, dust and water on a road surface.
+ *
+ * Wear and dust ride in as vertex attributes; wetness and the rain are
+ * uniforms shared by every surface. The ripples are the part worth
+ * explaining: standing water in a downpour is never still, and a mirror that
+ * does not move reads as varnish. Where the roughness map says water pools,
+ * rings expand from raindrop impacts and bend the surface normal — which the
+ * reflections then follow, so the reflected world breaks up and reforms.
+ */
+function patchWear(material, wet = { value: 0 }, rain = { value: 0 }, time = { value: 0 }) {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uWet = wet;
+    shader.uniforms.uRain = rain;
+    shader.uniforms.uRippleTime = time;
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
@@ -279,8 +294,35 @@ function patchWear(material, wet = { value: 0 }) {
         '#include <common>',
         `#include <common>
         uniform float uWet;
+        uniform float uRain;
+        uniform float uRippleTime;
         varying float vWear;
-        varying float vDust;`,
+        varying float vDust;
+
+        float rippleHash( vec2 p ) {
+          return fract( sin( dot( p, vec2( 41.7, 289.1 ) ) ) * 43758.5453 );
+        }
+
+        // One impact per cell, each with its own moment and its own place in
+        // it. The ring expands and dies inside its cell, so a single lookup
+        // is enough and the field still reads as scattered rain.
+        vec2 rippleNormal( vec2 uv, float speed ) {
+          vec2 grid = uv;
+          vec2 cell = floor( grid );
+          vec2 f = fract( grid ) - 0.5;
+
+          float seed = rippleHash( cell );
+          float phase = fract( uRippleTime * speed + seed );
+          vec2 centre = ( vec2( rippleHash( cell + 3.7 ), rippleHash( cell + 9.1 ) ) - 0.5 ) * 0.5;
+
+          vec2 d = f - centre;
+          float r = length( d );
+          // A ring travelling outward, fading as it goes and as it ages.
+          float radius = phase * 0.45;
+          float ring = sin( ( r - radius ) * 46.0 ) * exp( -abs( r - radius ) * 16.0 );
+          float life = ( 1.0 - phase ) * smoothstep( 0.0, 0.08, phase );
+          return normalize( d + 1e-5 ) * ring * life;
+        }`,
       )
       .replace(
         '#include <color_fragment>',
@@ -291,6 +333,21 @@ function patchWear(material, wet = { value: 0 }) {
         diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.65, 1.55, 1.35 ), vDust );
         // Soaked tarmac: water fills the pores, so far less light scatters back.
         diffuseColor.rgb *= mix( 1.0, 0.58, uWet );`,
+      )
+      // Ripples go in before the tangent-space normal reaches the surface,
+      // which is the only place a perturbation is in the right frame.
+      .replace(
+        'mapN.xy *= normalScale;',
+        `mapN.xy *= normalScale;
+        #ifdef USE_ROUGHNESSMAP
+          float puddleDepth = smoothstep( 0.42, 0.18, texture2D( roughnessMap, vRoughnessMapUv ).g );
+          float wetness = uWet * ( 0.25 + 0.75 * puddleDepth );
+          if ( uRain > 0.001 && wetness > 0.01 ) {
+            vec2 ripple = rippleNormal( vNormalMapUv * 34.0, 0.9 )
+              + rippleNormal( vNormalMapUv * 61.0 + 17.3, 1.4 ) * 0.6;
+            mapN.xy += ripple * wetness * uRain * 0.55;
+          }
+        #endif`,
       )
       .replace(
         '#include <roughnessmap_fragment>',

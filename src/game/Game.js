@@ -12,6 +12,7 @@ import { RainSystem } from '../render/Rain.js';
 import { SplashSystem } from '../render/Splashes.js';
 import { QUALITY, Renderer } from '../render/Renderer.js';
 import { CIRCUITS } from '../track/Layout.js';
+import { DrivingAssist } from './Assist.js';
 import { Pacing } from '../track/Pacing.js';
 import { SURFACE } from '../track/Track.js';
 import { Scenery } from '../track/Scenery.js';
@@ -81,7 +82,9 @@ export class Game {
     mode = 'time-trial',
     opponents = 5,
     weather = 'clear',
+    assist = 'high',
   } = {}) {
+    this.assist = new DrivingAssist(assist);
     this.running = false;
     this.#teardown();
 
@@ -280,6 +283,16 @@ export class Game {
     const controls = this.input.update(dt, player.speedKph);
     this.#handleActions();
 
+    // Braking help reads the same speed profile the arrows are drawn from,
+    // a moment ahead of where the car is. Last frame's position is a metre
+    // or so stale at racing speed, which is nothing next to the second of
+    // road it looks down.
+    this.assist?.apply(controls, {
+      speed: player.speed,
+      s: this.playerQuery?.s ?? 0,
+      pacing: this.pacing,
+    });
+
     /* -- simulate --------------------------------------------------------- */
     player.update(dt, controls);
 
@@ -317,6 +330,7 @@ export class Game {
     this.renderer.setSkyboxCentre(player.position);
     this.camera.update(player, dt, impact);
     this.rain?.update(dt, this.renderer.camera);
+    if (this.materials) this.materials.rippleTime.value += dt;
     this.splashes?.update(dt, this.renderer.camera, this.track);
     this.renderer.setSpeedBlur(player.speedKph);
     this.renderer.setRainFlow(player.speedKph);
@@ -352,6 +366,11 @@ export class Game {
   }
 
   /** Shows or hides the pacing arrows on the road. */
+  /** @param {'high'|'medium'|'low'|'off'} level */
+  setAssist(level) {
+    this.assist?.setLevel(level);
+  }
+
   setRacingLine(on) {
     this.showRacingLine = Boolean(on);
     if (this.racingLine) this.racingLine.visible = this.showRacingLine;
@@ -527,6 +546,8 @@ export class Game {
       weather: this.weather.current?.label ?? 'Clear',
       wet: this.track.wetness,
       racingLine: this.showRacingLine,
+      assist: this.assist?.level ?? 'off',
+      assistBraking: this.assist?.braking ?? 0,
       pace: this.pacing.phaseAt(this.playerQuery?.s ?? 0),
       paceSpeedKph: this.pacing.speedAt(this.playerQuery?.s ?? 0) * 3.6,
     };
@@ -570,7 +591,12 @@ class FrameClock {
 }
 
 /** What the pacing profile needs to know about a car. */
-function pacingCar(spec) {
+/**
+ * The car as the pacing model sees it: a cornering and braking limit, a mass
+ * and a peak power. Exported because the braking assist and its tests have
+ * to read the same profile the arrows are drawn from.
+ */
+export function pacingCar(spec) {
   let kw = 0;
   for (const [rpm, nm] of spec.engine?.torqueCurve ?? []) {
     kw = Math.max(kw, (nm * rpm * Math.PI * 2) / 60 / 1000);

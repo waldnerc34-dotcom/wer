@@ -131,6 +131,40 @@ parking speeds and most of a second at 200 km/h — so a tap is a correction
 and a hold is a corner, with room between the two. Releasing centres quickly.
 What "full lock" means is decided by the car (below), not the key.
 
+### Braking help
+
+Knowing where to brake is the last thing a circuit teaches, so the game will
+do it for you. The start screen asks for a level and **Full** is the default.
+
+| | |
+|---|---|
+| **Full** | Brakes for you into every corner and closes the throttle while it does |
+| **Assisted** | Steps in once you are carrying more speed than the corner will take |
+| **Safety net** | Only when the corner is nearly lost |
+| **Off** | You do the braking |
+
+It invents nothing: `src/game/Assist.js` reads the same whole-lap speed
+profile the coloured arrows are drawn from, takes the **slowest** speed that
+profile wants anywhere in the next second of road, and brakes on the
+difference. Because the profile's backward pass has already spread each
+corner's braking back up the road, reading it ahead *is* braking at the
+right point — and it moves with the weather, since the profile is rebuilt
+when the grip changes. The assist only ever adds brake, so a player pressing
+harder is left alone, and the HUD says AUTO BRAKE while it is working.
+
+Two things that testing changed. Braking while leaving part throttle has the
+engine fighting the discs and the car still arrives too fast, so any real
+braking demand now closes the throttle completely. And reading the profile at
+a single point ahead steps over the entry to a hairpin the way a coarse ray
+steps over a car — the sample lands before the corner or after it, and the
+brakes come on late either way; taking the minimum across the window fixed
+Col de l'Aigle outright.
+
+`tests/assist.test.mjs` is the proof: a driver who holds the throttle flat
+for a whole lap and never once touches the brake. On Full that driver gets
+round every circuit, and with the help off the same driver never finishes
+Apex at all.
+
 ### Pacing arrows
 
 Chevrons are laid along the racing line for the whole lap, each pointing
@@ -519,6 +553,48 @@ three.js on WebGL2, with a post chain built on `postprocessing`:
   fine flake normal map that only affects the base layer.
 - Screen-space ray-traced reflections on the two top presets (below).
 
+### Atmosphere
+
+`src/render/Atmosphere.js` does three things a linear `THREE.Fog` cannot,
+all from the depth buffer the post chain already has.
+
+**Height fog.** Haze pools in the valley and thins as you climb. The shader
+integrates an exponentially thinning atmosphere along the view ray
+analytically — one closed form, no marching — so a descent runs down into
+the murk and a crest genuinely reveals the circuit. The presets are still
+written as a pair of distances, and both are honoured: air is clear out to
+`near` and nine tenths hazed by `far`. Reading only `far` made a clear day
+look like a foggy one, because the first 600 m of a 3.4 km preset are meant
+to be clear air.
+
+**In-scattering.** Haze is not one colour. Toward the sun, light scatters
+forward off the water in the air and the haze takes the sun's colour; away
+from it, it stays the cold colour of the sky. A Henyey-Greenstein phase
+function decides the mix.
+
+**Light shafts.** Where the sun is on screen, the pass walks a line of
+samples from each pixel toward it and counts how much of that line is open
+sky rather than a tree, a gantry or a car — god rays, with no second render
+of the scene. They are confined to a halo around the sun in screen space:
+weighting by the world angle is not selective enough, because across a 40°
+frame the angle to the sun barely changes, so every pixel got the same lift
+and the whole image turned to milk.
+
+All of it is masked off the sky itself, which is already the colour the sky
+should be. The scene's own fog is switched off wherever this pass runs;
+fogging once per material and once in post doubles it. Measured against the
+same frame with the pass disabled, it changes a clear day by about one level
+in 255 and a foggy one by ten.
+
+### Rain on the road
+
+Standing water in a downpour is never still, and a mirror that does not move
+reads as varnish. Where the road's roughness map says water pools, rings
+expand from raindrop impacts and bend the surface normal, and the
+reflections follow — so the reflected world breaks up and reforms. The
+ripples only run while rain is actually falling: a road that stays wet after
+the rain stops is still.
+
 ### Ray-traced reflections
 
 `src/render/Reflections.js` marches a reflected ray through the depth buffer,
@@ -554,11 +630,18 @@ with the square of the scale, so the correction lands in one move instead of
 hunting; and it comes down quickly but goes back up slowly. Everything the
 player chose — shadow maps, the post chain, the scenery — is left alone.
 
-**Ultra renders above the display and resolves down.** `superSampleTo` raises
-the scale until the frame buffer is at least 3840 across, so it is a 4K frame
-on a 1080p monitor too, not only on a 4K one; supersampling is the oldest and
-best anti-aliasing there is. The HUD prints the number of pixels actually
-being drawn next to the frame rate, so the setting has to own up to itself.
+**Ultra renders above the display and resolves down** — but it earns its way
+there. The frame starts at the display's own resolution and the scaler
+climbs it toward 3840 across only while frames stay inside budget, so a
+machine that cannot afford 4K never allocates it. It matters: allocating a
+4K half-float chain up front — two composer buffers, the normal pass,
+ambient occlusion, anti-aliasing — is several hundred megabytes, and on a
+desktop GPU that could not find it the result was a black canvas with the
+audio still playing. There is also a hard ceiling of 8.4 megapixels
+whatever the display, and a lost context is now caught, logged and answered
+by dropping to the smallest frame the preset allows rather than failing
+silently. The HUD prints the pixels actually being drawn next to the frame
+rate, so the setting has to own up to itself.
 
 Two things that were quietly costing frames everywhere: the particle systems
 rewrote the transform of every dead particle on every frame — a thousand

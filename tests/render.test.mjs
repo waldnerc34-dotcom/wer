@@ -53,21 +53,58 @@ check(
   `${QUALITY.ultra.reflections.steps} steps, ${QUALITY.ultra.reflections.maxDistance} m`,
 );
 
-console.log('\n=== 4K ===');
-// A 1080p display: the preset must ask for a frame buffer 3840 across.
-const bufferWidth = (preset, cssWidth, devicePixelRatio) => {
-  const dpr = Math.min(devicePixelRatio, preset.pixelRatio);
-  let scale = preset.renderScale ?? 1;
+console.log('\n=== 4K, and what it may cost ===');
+
+// Mirrors Renderer#nativeRatio and #ceilingRatio: what the preset draws
+// before the scaler has climbed, and the most it may ever draw.
+const nativeRatio = (preset, devicePixelRatio) =>
+  Math.min(devicePixelRatio, preset.pixelRatio) * (preset.renderScale ?? 1);
+
+const ceilingRatio = (preset, cssWidth, cssHeight, devicePixelRatio) => {
+  const native = nativeRatio(preset, devicePixelRatio);
+  let ratio = native;
   if (preset.superSampleTo) {
-    const needed = preset.superSampleTo / Math.max(1, cssWidth * dpr);
-    scale = Math.min(Math.max(scale, needed), preset.maxRenderScale ?? 2);
+    ratio = Math.max(native, preset.superSampleTo / Math.max(1, cssWidth));
+    ratio = Math.min(ratio, native * (preset.maxRenderScale ?? 2));
   }
-  return Math.round(cssWidth * dpr * scale);
+  if (preset.maxPixels) {
+    ratio = Math.min(ratio, Math.sqrt(preset.maxPixels / Math.max(1, cssWidth * cssHeight)));
+  }
+  return ratio;
 };
-check('Ultra renders 4K on a 1080p screen', bufferWidth(QUALITY.ultra, 1920, 1) === 3840, `${bufferWidth(QUALITY.ultra, 1920, 1)} px across`);
-check('Ultra renders past 4K on a 4K screen', bufferWidth(QUALITY.ultra, 3840, 1) >= 4800, `${bufferWidth(QUALITY.ultra, 3840, 1)} px across`);
-check('Ultra never runs away on a retina laptop', bufferWidth(QUALITY.ultra, 1512, 2) <= 6100, `${bufferWidth(QUALITY.ultra, 1512, 2)} px across`);
-check('Quality stays at the display resolution', bufferWidth(QUALITY.high, 1920, 1) === 1920);
+
+const width = (ratio, cssWidth) => Math.round(cssWidth * ratio);
+const megapixels = (ratio, w, h) => (w * ratio * h * ratio) / 1e6;
+
+// The black-screen fix: nothing supersampled is allocated up front. The
+// first frame is the display's own resolution and the scaler climbs from
+// there only while frames stay inside budget — a GPU that cannot afford
+// half a gigabyte of 4K buffers never asks for them.
+check(
+  'Ultra starts at the display resolution',
+  width(nativeRatio(QUALITY.ultra, 1), 1920) === 1920,
+  `${width(nativeRatio(QUALITY.ultra, 1), 1920)} px across on the first frame`,
+);
+
+check(
+  'Ultra may climb to 4K on a 1080p screen',
+  width(ceilingRatio(QUALITY.ultra, 1920, 1080, 1), 1920) === 3840,
+  `${width(ceilingRatio(QUALITY.ultra, 1920, 1080, 1), 1920)} px across`,
+);
+
+for (const [name, w, h, dpr] of [
+  ['1080p', 1920, 1080, 1],
+  ['1440p', 2560, 1440, 1],
+  ['4K', 3840, 2160, 1],
+  ['a retina laptop', 1512, 982, 2],
+  ['an ultrawide', 3440, 1440, 1],
+]) {
+  const mp = megapixels(ceilingRatio(QUALITY.ultra, w, h, dpr), w, h);
+  check(`Ultra stays inside its budget on ${name}`, mp <= 8.4 + 0.01, `${mp.toFixed(1)} megapixels`);
+}
+
+check('Quality stays at the display resolution', width(nativeRatio(QUALITY.high, 1), 1920) === 1920);
+check('Quality never supersamples', !QUALITY.high.superSampleTo);
 
 /* --------------------------------------------------- dynamic resolution */
 

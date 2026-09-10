@@ -30,6 +30,7 @@ export class HUD {
       delta: root.querySelector('[data-delta]'),
       corner: root.querySelector('[data-corner]'),
       pace: root.querySelector('[data-pace]'),
+      autobrake: root.querySelector('[data-autobrake]'),
       position: root.querySelector('[data-position]'),
       warn: root.querySelector('[data-warn]'),
       tyres: root.querySelector('[data-tyres]'),
@@ -182,6 +183,9 @@ export class HUD {
     const pace = state.racingLine === false ? -1 : state.pace ?? -1;
     this.#set('pace', e.pace, PACE_LABELS[pace] ?? '');
     e.pace.className = `pace p${pace}`;
+    // Say so when the car is braking for the driver rather than with them,
+    // otherwise the pedal moving on its own is a mystery.
+    e.autobrake.classList.toggle('on', (state.assistBraking ?? 0) > 0.05);
     this.#set(
       'position',
       e.position,
@@ -283,6 +287,7 @@ const TEMPLATE = /* html */ `
   <div class="centre">
     <div data-delta class="delta"></div>
     <div data-pace class="pace"></div>
+    <div data-autobrake class="autobrake">AUTO BRAKE</div>
     <div data-corner class="corner"></div>
     <div data-warn class="warn"></div>
   </div>
