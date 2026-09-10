@@ -1,0 +1,86 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>APEX — room bench</title>
+<body>
+<pre id="out">idle</pre>
+<script type="module">
+/*
+ * One player, in a real room, over the real Multiplayer code.
+ *
+ * The only substitution is the relay: the public ones cannot be reached from
+ * a machine behind a strict egress policy, and discovery — two people finding
+ * each other at all — is exactly the part that most needs testing. Everything
+ * downstream of the introduction is the shipping code, unmodified.
+ */
+import { Multiplayer } from './src/game/Multiplayer.js';
+import { joinRoom } from '@trystero-p2p/ws-relay';
+
+const q = new URLSearchParams(location.search);
+const NAME = q.get('name') ?? 'Driver';
+const CODE = q.get('code') ?? 'TEST1';
+const RELAY = q.get('relay') ?? 'ws://127.0.0.1:8099';
+
+const log = (msg) => {
+  document.getElementById('out').textContent = msg;
+};
+
+const state = {
+  roster: [],
+  status: null,
+  go: null,
+  laps: [],
+  records: [],
+  peerStates: 0,
+};
+window.__state = state;
+
+const net = new Multiplayer({
+  code: CODE,
+  identity: () => ({ name: NAME, carId: 'rosso' }),
+  transports: [
+    {
+      id: 'local',
+      label: 'local relay',
+      load: async () => (config, roomId, callbacks) =>
+        joinRoom({ ...config, relayConfig: { urls: [RELAY] } }, roomId, callbacks),
+    },
+  ],
+  onRoster: (rows) => {
+    state.roster = rows.map((r) => ({
+      name: r.name, carId: r.carId, slot: r.slot, host: r.host, self: !!r.self, ping: r.ping,
+    }));
+    log(`${state.roster.length} in room: ${state.roster.map((r) => r.name).join(', ')}`);
+  },
+  onStatus: (s) => { state.status = s; },
+  onGo: (at, hold) => { state.go = { at, hold, localNow: net.room.now() }; },
+  onLap: (peerId, lap) => state.laps.push({ peerId, ...lap }),
+  onRecords: (circuit, rows) => state.records.push({ circuit, rows }),
+});
+
+net.onPeerState = () => { state.peerStates++; };
+window.__net = net;
+window.__describe = () => net.describe();
+
+net.join();
+
+// A car driving in circles, so there is something to send.
+let t = 0;
+setInterval(() => {
+  t += 0.05;
+  net.send(0.05, {
+    position: { x: Math.sin(t) * 50, y: 0, z: Math.cos(t) * 50 },
+    quaternion: { x: 0, y: Math.sin(-t / 2), z: 0, w: Math.cos(-t / 2) },
+    velocity: { x: Math.cos(t) * 50, y: 0, z: -Math.sin(t) * 50 },
+    controls: { throttle: 1, brake: 0, handbrake: 0 },
+    groundedCount: 4,
+    wheels: [
+      { steer: 0.05, omega: 140, slipSpeed: 1, surface: 0 },
+      { steer: 0.05, omega: 140, slipSpeed: 1, surface: 0 },
+      { steer: 0, omega: 140, slipSpeed: 1, surface: 0 },
+      { steer: 0, omega: 140, slipSpeed: 1, surface: 0 },
+    ],
+  });
+}, 50);
+
+window.__ready = true;
+</script>

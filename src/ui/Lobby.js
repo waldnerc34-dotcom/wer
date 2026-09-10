@@ -129,6 +129,7 @@ export class Lobby {
         <button class="btn ghost small" data-copy>Copy</button>
       </header>
       <p class="tagline" data-status></p>
+      <p class="hint" data-session></p>
       <div class="field">
         <header><label>On the grid</label><span data-count></span></header>
         <ol class="grid-list" data-roster></ol>
@@ -183,11 +184,11 @@ export class Lobby {
     screen.append(card);
     this.root.append(screen);
     this.node = card;
-    this.update({ roster, isHost, session });
+    this.update({ roster, isHost, session, status: 'Opening the room…' });
   }
 
   /** Refreshes the parts of the room that change while you sit in it. */
-  update({ roster = [], isHost = false, session = null, status = null } = {}) {
+  update({ roster = [], isHost = false, session = null, status = undefined } = {}) {
     if (!this.node) return;
     const list = this.node.querySelector('[data-roster]');
     if (!list) return;
@@ -223,13 +224,17 @@ export class Lobby {
         : 'Waiting for the host';
     }
 
+    // Two separate lines, because they answer two separate questions: is the
+    // network working, and what are we about to race. A room that showed only
+    // the second left a player with nobody in it and nothing to go on.
     const line = this.node.querySelector('[data-status]');
-    if (line) {
-      line.textContent =
-        status ??
-        (session
-          ? `${nameOf(session.circuitId)} · ${labelOf(WEATHERS, session.weather)} · ${session.laps} laps`
-          : 'Waiting for the host to pick a circuit.');
+    if (line && status !== null) line.textContent = status;
+
+    const sessionLine = this.node.querySelector('[data-session]');
+    if (sessionLine) {
+      sessionLine.textContent = session
+        ? `${nameOf(session.circuitId)} · ${labelOf(WEATHERS, session.weather)} · ${session.laps} laps`
+        : 'Waiting for the host to pick a circuit.';
     }
   }
 

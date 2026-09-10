@@ -40,7 +40,9 @@ export class Multiplayer {
    * @param {(peerId, lap) => void} [opts.onLap]
    * @param {(circuit, rows) => void} [opts.onRecords]
    */
-  constructor({ code, identity, onRoster, onSession, onGo, onLap, onRecords } = {}) {
+  constructor({
+    code, identity, onRoster, onSession, onGo, onLap, onRecords, onStatus, transports,
+  } = {}) {
     this.code = normaliseCode(code);
     this.identity = identity;
     this.onRoster = onRoster;
@@ -48,6 +50,7 @@ export class Multiplayer {
     this.onGo = onGo;
     this.onLap = onLap;
     this.onRecords = onRecords;
+    this.onStatus = onStatus;
 
     /** peerId -> {id, name, carId, ready, protocol, lap, best, ping} */
     this.drivers = new Map();
@@ -57,12 +60,14 @@ export class Multiplayer {
 
     this.room = new Room({
       code: this.code,
+      transports,
       onJoin: (peerId) => this.#joined(peerId),
       onLeave: (peerId) => this.#left(peerId),
       onState: (peerId, state, offset) => {
         this.states.set(peerId, { state, offset, at: this.room.now() });
         this.onPeerState?.(peerId, state, offset);
       },
+      onStatus: (status) => this.onStatus?.(status),
     });
 
     this.selfId = this.room.selfId;
@@ -104,7 +109,7 @@ export class Multiplayer {
 
   /** Converts a stamp on a peer's clock to one on ours. */
   #toLocal(peerId, at) {
-    const sync = this.room.sync.get(peerId);
+    const sync = this.room.syncFor(peerId);
     return sync?.settled ? at + sync.offset : this.room.now();
   }
 
@@ -170,6 +175,23 @@ export class Multiplayer {
   #announce(target) {
     const me = this.identity?.() ?? {};
     this.sendWho({ name: me.name || 'Driver', carId: me.carId, protocol: PROTOCOL }, target);
+  }
+
+  /** How the introduction is going, in words a player can act on. */
+  describe() {
+    const s = this.room.status();
+    if (s.connected) {
+      const n = s.connected;
+      return `Connected to ${n} ${n === 1 ? 'driver' : 'drivers'}.`;
+    }
+    if (s.peers) return 'Found somebody — opening the connection…';
+    if (!s.networks) {
+      return 'Could not reach any of the matchmaking networks. Some office, ' +
+        'school and mobile networks block them.';
+    }
+    const via = s.failed.length ? ` (${s.failed.join(' and ')} unreachable)` : '';
+    return `Listening on ${s.networks} of ${s.total} networks${via}. ` +
+      'Give your friends the code.';
   }
 
   #joined(peerId) {
@@ -251,7 +273,7 @@ export class Multiplayer {
    * them, while every extra packet is another chance for one to be late.
    */
   send(dt, vehicle) {
-    if (!this.room.channels.size) return;
+    if (!this.room.peerCount) return;
     this.sendAccumulator += dt;
     const period = 1 / STATE_HZ;
     if (this.sendAccumulator < period) return;

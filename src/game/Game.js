@@ -175,7 +175,7 @@ export class Game {
     }
 
     this.onProgress?.(0.72, 'Warming the cars');
-    await this.#spawnCars(carDef, mode === 'race' ? opponents : 0);
+    await this.#spawnCars(carDef, mode === 'race' ? opponents : 0, remotes);
     await this.audio.load(this.assets);
 
     this.onProgress?.(0.86, 'Setting the weather');
@@ -208,7 +208,13 @@ export class Game {
     this.onReady?.();
   }
 
-  async #spawnCars(carDef, opponentCount) {
+  /**
+   * @param {object} carDef the player's car
+   * @param {number} opponentCount how many cars to put on the grid in total
+   * @param {object[]} remotes the people in the room, if this is a race
+   *                           between people; each carries its grid slot
+   */
+  async #spawnCars(carDef, opponentCount, remotes = []) {
     // Player.
     const playerModel = await this.assets.instance(carDef.model);
     this.player = new Vehicle(carDef.spec, this.track);
@@ -253,7 +259,7 @@ export class Game {
     }
 
     // Then computed drivers, to fill whatever is left of the grid.
-    const aiCount = Math.max(0, opponents - remotes.length);
+    const aiCount = Math.max(0, opponentCount - remotes.length);
     const field = makeField(aiCount);
     const mine = Math.max(0, roster.indexOf(carDef));
     for (let i = 0; i < aiCount; i++) {

@@ -85,14 +85,25 @@ function enterRoom(name, code) {
   records.driver = name;
   let carId = lastSelection?.carId ?? availableCars()[0].id;
 
+  const refreshRoom = () => {
+    if (!net) return;
+    lobby.update({
+      roster: net.roster(),
+      isHost: net.isHost,
+      session: net.session,
+      status: net.describe(),
+    });
+  };
+
   net = new Multiplayer({
     code,
     identity: () => ({ name: records.driver, carId }),
     onRoster: (rows) => {
       roster = rows;
-      lobby.update({ roster: rows, isHost: net.isHost, session: net.session });
+      refreshRoom();
     },
-    onSession: () => lobby.update({ roster, isHost: net.isHost, session: net.session }),
+    onSession: refreshRoom,
+    onStatus: refreshRoom,
     onGo: (at, hold) => beginRace(at, hold),
     onRecords: (circuit, rows) => {
       // A friend's board arrives when they join, and is kept: the point of a
@@ -134,10 +145,7 @@ function enterRoom(name, code) {
     net.join();
   } catch (err) {
     console.warn('Could not reach the matchmaking relays:', err);
-    lobby.setStatus(
-      'Could not reach the network. Some office and school networks block it; ' +
-        'the room stays open in case it comes back.',
-    );
+    lobby.setStatus('Could not open the room: ' + (err?.message ?? err));
   }
 
   // The board for whatever circuit we are on goes out once, so everybody's
@@ -151,9 +159,7 @@ function enterRoom(name, code) {
 
   // Ping figures move on their own; nothing else in the room does.
   clearInterval(lobby.timer);
-  lobby.timer = setInterval(() => {
-    if (net) lobby.update({ roster: net.roster(), isHost: net.isHost, session: net.session });
-  }, 1500);
+  lobby.timer = setInterval(refreshRoom, 1500);
 }
 
 function leaveRoom() {
