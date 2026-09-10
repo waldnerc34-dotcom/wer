@@ -503,6 +503,10 @@ html, body {
 
 .choices { display: flex; gap: 10px; min-width: 0; }
 .choices.cards, .choices.outlines {
+  /* Cards keep their own height. Stretching them to the tallest in the row
+     leaves slack that a <button> centres, which reads as a black band above
+     the photograph. */
+  align-items: flex-start;
   overflow-x: auto;
   scroll-snap-type: x proximity;
   padding-bottom: 6px;
@@ -720,14 +724,25 @@ html, body {
 .results .best { color: var(--accent); }
 .results .invalid { color: var(--ink-dim); text-decoration: line-through; }
 
-@media (max-width: 900px) {
+/* The compact layout is for phones and small windows. Width alone cannot
+   tell them apart: a phone in landscape — the way this game is meant to be
+   held — is 844 to 956 CSS px across, wider than plenty of desktop windows
+   are tall. So it is chosen by either dimension, and a screen too short for
+   two columns of controls gets the same treatment. */
+@media (max-width: 1000px), (max-height: 560px) {
   .start { grid-template-columns: 1fr; gap: 14px; padding: 16px 18px 0; overflow-y: auto; align-content: start; }
+  /* The start button is pinned to the bottom so it is always in reach. The
+     content scrolls behind it, so the bar has to be opaque enough to read
+     as a floor rather than as text bleeding through. */
   .start .actions {
     position: sticky;
     bottom: 0;
     margin: 4px -18px 0;
     padding: 12px 18px 14px;
-    background: linear-gradient(180deg, rgba(11, 12, 15, 0), rgba(11, 12, 15, 0.92) 40%);
+    background: rgba(11, 12, 15, 0.94);
+    border-top: 1px solid var(--panel-line);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     z-index: 2;
   }
   .hero { flex-direction: row; align-items: center; gap: 16px; }

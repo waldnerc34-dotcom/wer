@@ -311,6 +311,21 @@ a row of chips. Typefaces are Bebas Neue and Barlow Condensed, self-hosted
 under the SIL Open Font License; the single-file build takes them from
 Google Fonts, the one stylesheet host a sandboxed page may reach.
 
+On a phone the same screen collapses to one column with the start button
+pinned to the bottom. Which layout you get is decided by either dimension,
+not by width alone: **a phone held sideways is not a narrow screen**. An
+iPhone Pro Max is 932 CSS px across in landscape — wider than the 900 px
+breakpoint this once used, so it was served the desktop layout, two columns
+squeezed onto a 430 px-tall screen with the start button past the right
+edge. `tests/layout.test.mjs` now evaluates the breakpoint against the real
+viewports of the phones the game is played on, and asserts the wide layout
+survives on a laptop.
+
+Card photographs are 16:9 and are never stretched. The rows that hold them
+do not stretch a card to the height of the tallest in the row either: the
+slack ends up centred by the `<button>`, and reads as a black band above the
+picture.
+
 ## Sound
 
 The engine is a recording — a V8 loop from the CC0 assets of the pmndrs
