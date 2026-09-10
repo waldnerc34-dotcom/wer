@@ -328,7 +328,17 @@ const body = html
   .trim();
 
 // An inline module ends at the first "</script>", wherever it appears.
-const safeJs = js.replace(/<\/script/gi, '<\\/script');
+//
+// The replacement character is escaped for a different reason: the MQTT
+// client brings Node's string decoder with it, which quite correctly returns
+// U+FFFD for a malformed UTF-8 sequence and therefore has the character
+// written literally in a string. A raw U+FFFD in a file is normally the scar
+// of a lost byte, so tools reject it on sight — and they are right to. The
+// escape is the same string to JavaScript and leaves nothing in the page that
+// looks like damage.
+const safeJs = js
+  .replace(/<\/script/gi, '<\\/script')
+  .replace(/\uFFFD/g, '\\uFFFD');
 
 const page = [
   '<title>APEX</title>',
