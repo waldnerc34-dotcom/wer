@@ -155,6 +155,7 @@ export class Scenery {
               rotation: rand() * Math.PI * 2,
               scale: lerp(entry.scale[0], entry.scale[1], rand()),
               tilt: (rand() - 0.5) * 0.05,
+              shade: rand(),
             });
           } else {
             out.get('__cards__').push({
@@ -384,6 +385,11 @@ export class Scenery {
 
       const inst = new THREE.InstancedMesh(geometry, material, placements.length);
       inst.castShadow = entry.kind !== 'rock';
+      // Per-tree colour. Four models repeated a thousand times each is four
+      // shades of green in a wood, and a wood does not have four shades of
+      // green in it. The jitter is small — species and season, not a paint
+      // chart — and it multiplies the map, so a brown trunk stays brown.
+      const shaded = entry.kind === 'tree';
       inst.receiveShadow = true;
       inst.frustumCulled = true;
       inst.name = `${entry.kind}:${mesh.name}`;
@@ -404,8 +410,13 @@ export class Scenery {
         combined.multiply(SHIFT.makeTranslation(0, -floor, 0));
         combined.multiply(local);
         inst.setMatrixAt(i, combined);
+        if (shaded) {
+          TINT.setHSL(0.24 + (p.shade ?? 0.5) * 0.07, 0.34, 0.42 + (p.shade ?? 0.5) * 0.2);
+          inst.setColorAt(i, TINT);
+        }
       }
       inst.instanceMatrix.needsUpdate = true;
+      if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
       inst.computeBoundingSphere();
       this.group.add(inst);
     }
@@ -426,14 +437,19 @@ export class Scenery {
       m.transparent = false;
     }
 
-    if (kind === 'far-tree') {
-      // These only ever appear as distant silhouettes: pull them toward the
-      // colour of the card wood so the treeline reads as one mass.
-      m.color = new THREE.Color(0x5c6b45);
-      m.roughness = 0.95;
+    if (kind === 'tree') {
+      // The pack's foliage is a flat, saturated green with no texture in it,
+      // which beside a photographed canopy reads as painted plastic. Pulling
+      // it toward the colour of the card wood is what makes the near trees
+      // and the far treeline look like one wood rather than two — and it has
+      // to be a gentle pull now that these are the trees you drive past,
+      // rather than the hard tint that was right when they were only ever
+      // silhouettes on the horizon.
+      m.color = new THREE.Color(0x93a074);
+      m.roughness = 0.94;
       m.metalness = 0;
-      m.envMapIntensity = 0.6;
-      return this.#addWind(m, 0.3);
+      m.envMapIntensity = 0.55;
+      return this.#addWind(m, 0.34);
     }
 
     if (kind === 'rock') {
@@ -496,4 +512,5 @@ export class Scenery {
   }
 }
 
+const TINT = new THREE.Color();
 const SHIFT = new THREE.Matrix4();
