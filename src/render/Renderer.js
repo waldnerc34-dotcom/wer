@@ -221,6 +221,21 @@ export const QUALITY = {
 const SHED = ['reflections', 'ao', 'smaa', 'shafts', 'motionBlur', 'shadowRange'];
 
 /**
+ * How the bloom is combined with the image underneath it.
+ *
+ * Exported so a test can hold it to account, because the library's default is
+ * SCREEN and SCREEN is wrong here in a way that is invisible until it is
+ * catastrophic. Screen is `1 - (1 - x)(1 - y)` — a statement about two values
+ * between zero and one. This chain is HDR: a captured sun arrives in the
+ * thousands, both terms go hugely negative, their product goes hugely
+ * positive, and the result is negative by millions on every channel at once.
+ * The tone mapper floors it and the sun renders as a black disc.
+ *
+ * Addition is what a bloom is anyway: light added to light.
+ */
+export const BLOOM_BLEND = BlendFunction.ADD;
+
+/**
  * The preset the player picked, cut down to what the machine can actually be
  * asked for.
  *
@@ -614,18 +629,7 @@ export class Renderer {
     }
 
     this.bloom = new BloomEffect({
-      // Additive, not the library's default of SCREEN.
-      //
-      // Screen is `1 - (1 - x)(1 - y)`, which is a statement about two values
-      // between zero and one. This chain is HDR: the captured sun arrives at
-      // seven thousand. Both terms go hugely negative, their product goes
-      // hugely positive, and the result comes out at minus several million —
-      // on all three channels at once. AgX then floors it, and the sun
-      // renders as a black disc with a bright ring where the numbers were
-      // still small enough to stay positive. Which is exactly what it did.
-      //
-      // Adding light to light is also just what a bloom is.
-      blendFunction: BlendFunction.ADD,
+      blendFunction: BLOOM_BLEND,
       intensity: 0.62,
       luminanceThreshold: 0.78,
       luminanceSmoothing: 0.28,

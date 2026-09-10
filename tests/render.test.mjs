@@ -9,7 +9,8 @@
  *   node tests/render.test.mjs
  */
 
-import { QUALITY, fitToDevice } from '../src/render/Renderer.js';
+import { BLOOM_BLEND, QUALITY, fitToDevice } from '../src/render/Renderer.js';
+import { BlendFunction } from 'postprocessing';
 import { ResolutionScaler } from '../src/render/Resolution.js';
 
 let failures = 0;
@@ -199,6 +200,38 @@ check(
     phoneQuality.shadowDistance > phoneMobile.shadowDistance,
   `AO, ${phoneQuality.sceneryDensity} scenery, shadows to ${phoneQuality.shadowDistance} m`,
 );
+
+/* ------------------------------------------------------- blending the bloom */
+
+console.log('\n=== how the bloom is combined ===');
+
+// The two blend modes, exactly as the shader writes them.
+const screen = (x, y) => 1 - (1 - x) * (1 - y);
+const add = (x, y) => x + y;
+
+// On [0,1] screen is perfectly reasonable, which is why this hid for so long.
+check('screen behaves on values between zero and one', screen(0.5, 0.5) > 0.5 && screen(0.5, 0.5) <= 1);
+
+// And then the sun arrives. The captured HDRI peaks at ~6500 units; with the
+// bloom's own output on top of it, screen goes negative by millions — on all
+// three channels at once, which is a black disc.
+const sun = 6496;
+check(
+  'and goes catastrophically negative on a captured sun',
+  screen(sun, 500) < -1e6,
+  `${screen(sun, 500).toExponential(1)}`,
+);
+// Clamping cannot rescue it either: this is why the highlight guard, which
+// caps at 32, did not fix the black disc and could not have.
+check(
+  'clamping the input first does not rescue it',
+  screen(32, 32) < 0,
+  `${screen(32, 32).toFixed(0)} at the guard's limit`,
+);
+check('addition is well behaved at any magnitude', add(sun, 500) > sun && add(0.5, 0.5) === 1);
+
+check('so the bloom is additive', BLOOM_BLEND === BlendFunction.ADD, `blend function ${BLOOM_BLEND}`);
+check('and never screen', BLOOM_BLEND !== BlendFunction.SCREEN);
 
 /* --------------------------------------------------------- sharpening back */
 
