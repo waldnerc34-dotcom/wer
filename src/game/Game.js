@@ -19,7 +19,7 @@ import { Scenery } from '../track/Scenery.js';
 import { Track } from '../track/Track.js';
 import { buildTrack } from '../track/TrackBuilder.js';
 import { CARS, Vehicle } from '../physics/Vehicle.js';
-import { Driver, makeField } from './AI.js';
+import { Driver, FieldPace, makeField } from './AI.js';
 import { ChaseCamera } from './Camera.js';
 import { LapTimer } from './Timing.js';
 import { Weather } from './Weather.js';
@@ -100,6 +100,9 @@ export class Game {
     this.track = new Track(circuit);
     // The ideal speed profile for this car on this lap: drives the arrows.
     this.pacing = new Pacing(this.track, pacingCar(carDef.spec));
+    // The same profile is the ruler the field measures everybody against, so
+    // that "as fast as the player" means one thing on every circuit.
+    this.field = new FieldPace(this.pacing);
 
     this.onProgress?.(0.08, 'Loading materials');
     await this.materials.load(this.assets);
@@ -195,6 +198,7 @@ export class Game {
         skill: field[i].skill,
         aggression: field[i].aggression,
         name: field[i].name,
+        pace: this.field,
       });
       const timer = new LapTimer(this.track);
       rig.update(vehicle, 0.016);
@@ -297,7 +301,18 @@ export class Game {
     /* -- simulate --------------------------------------------------------- */
     player.update(dt, controls);
 
-    const all = [{ vehicle: player }, ...this.opponents];
+    // How quick the player is, measured rather than assumed. Last frame's
+    // query is a few centimetres stale, which is nothing over the five
+    // seconds of driving one measurement is made of.
+    this.field?.observe(dt, {
+      speed: player.speed,
+      s: this.playerQuery?.s ?? 0,
+      offTrack: this.playerOffTrack ?? false,
+    });
+
+    // The player is a rival like any other, and flagged as *the* rival so the
+    // field knows whose gearbox it is racing for.
+    const all = [{ vehicle: player, q: this.playerQuery, isPlayer: true }, ...this.opponents];
     for (const o of this.opponents) {
       const c = o.driver.update(dt, all);
       o.vehicle.update(dt, c);
@@ -313,6 +328,7 @@ export class Game {
     this.playerQuery = q;
     // The racing definition: all four wheels beyond the kerb.
     const offTrack = player.wheels.every((w) => w.surface > SURFACE.KERB);
+    this.playerOffTrack = offTrack;
     this.timer.update(dt, q.s, offTrack);
 
     this.#slipstream(q);
