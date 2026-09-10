@@ -51,6 +51,19 @@ const MODELS = [
   ...['tree3', 'tree4', 'bush1', 'bush2', 'bush3', 'bush4', 'bush5', 'rocks1', 'rocks2', 'rocks3', 'rocks4'].map(
     (n) => ({ path: `models/scenery/${n}.glb`, texture: 256, simplify: null }),
   ),
+  // Trackside props, at a fraction of their download textures. These are what
+  // make the far side of the barrier somewhere rather than nowhere, and each
+  // is a single primitive — so the set costs less page than one car.
+  //
+  // The inn, the sawmill and the two crate models are left out of *this*
+  // build only. Between them they are four megabytes of a sixteen-megabyte
+  // page, which is a quarter of the budget for four buildings nobody drives
+  // past closer than sixty metres. Props.js treats a model it cannot load as
+  // a model that is not there, so the hosted build keeps them and the
+  // single-file one quietly does without.
+  ...['cottage', 'well', 'wagon', 'fence', 'wall', 'lightpost', 'barrel', 'car'].map(
+    (n) => ({ path: `models/props/${n}.glb`, texture: 192, simplify: null }),
+  ),
 ];
 
 const TEXTURES = [
@@ -59,7 +72,7 @@ const TEXTURES = [
   'concrete_basecolor', 'concrete_normal', 'concrete_roughness',
   'grass_basecolor', 'grass_normal',
   'gravel_basecolor', 'gravel_normal', 'gravel_metalrough',
-  'flake_normal', 'smoke', 'skid', 'spark', 'tree_canopy',
+  'flake_normal', 'smoke', 'skid', 'spark', 'tree_canopy', 'water_normals',
 ].map((n) => `textures/${n}.webp`);
 
 // One sky for every circuit; the loader falls back to it when a circuit asks
@@ -77,7 +90,13 @@ const THUMBS = ['rosso', 'concept', 'porsche', 'urus'].map((id) => `thumbs/${id}
 const TEXTURE_CAP = 512;
 /** … except the road normal, which you look at for the whole lap. 768² is
  *  85 px per metre at the 9 m tile — sharp — and 350 KB under the 1024². */
-const CAPS = { 'textures/asphalt_normal.webp': 768, 'textures/flake_normal.webp': 256 };
+const CAPS = {
+  'textures/asphalt_normal.webp': 768,
+  'textures/flake_normal.webp': 256,
+  // The sea's waves are sampled at two scales over a plane kilometres
+  // across; nobody has ever seen a single texel of it.
+  'textures/water_normals.webp': 256,
+};
 
 /* -------------------------------------------------------------- models --- */
 

@@ -23,21 +23,30 @@ export class Ocean {
    * @param {number} [options.extent] how far it reaches, in metres
    * @param {number} [options.color]  deep-water colour
    */
-  constructor({ level = -30, extent = 14000, color = 0x0d2b3a } = {}) {
+  constructor({ level = -30, extent = 14000, color = 0x0d2b3a, waves = true } = {}) {
     this.level = level;
     this.time = { value: 0 };
+    this.waves = waves;
 
     const geometry = new THREE.PlaneGeometry(extent, extent, 1, 1);
     geometry.rotateX(-Math.PI / 2);
 
     this.material = new THREE.MeshStandardMaterial({
       color: new THREE.Color(color),
-      roughness: 0.06,
+      // Without the wave taps the surface has to carry its own texture in the
+      // roughness, or a flat mirror of the sky reads as wet glass.
+      roughness: waves ? 0.06 : 0.16,
       metalness: 0.02,
       envMapIntensity: 1.35,
     });
     // Wave motion, injected into the standard material so the sea is lit by
     // the same image-based lighting as the cars and the tarmac.
+    //
+    // Skipped outright on the cheap tiers. The sea reaches the horizon, so it
+    // is one of the largest things on screen by area, and a per-pixel normal
+    // over that area is not what a phone should be spending its fill rate on
+    // — a flat, slightly rough mirror of the same sky still reads as water.
+    if (!waves) return;
     this.material.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = this.time;
       shader.uniforms.uWaves = { value: this.normals ?? null };

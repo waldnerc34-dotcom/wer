@@ -148,8 +148,11 @@ export class Game {
     this.renderer.scene.add(this.props.group);
 
     if (circuit.sea) {
-      this.ocean = new Ocean(circuit.sea);
-      this.ocean.setNormals(await this.assets.texture('textures/water_normals.jpg'));
+      // Waves cost fill rate over the largest area on screen, so they are a
+      // property of the preset rather than of the circuit.
+      const waves = (this.renderer.settings.sceneryDensity ?? 1) >= 0.7;
+      this.ocean = new Ocean({ ...circuit.sea, waves });
+      if (waves) this.ocean.setNormals(await this.assets.texture('textures/water_normals.webp'));
       this.renderer.scene.add(this.ocean.mesh);
     }
 

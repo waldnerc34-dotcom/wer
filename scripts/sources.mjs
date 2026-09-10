@@ -162,7 +162,7 @@ export const ASSETS = [
   {
     repo: 'three',
     from: 'examples/textures/waternormals.jpg',
-    to: 'textures/water_normals.jpg',
+    to: 'textures/water_normals.png',
     credit: 'Water normal map — three.js examples, MIT',
   },
 
