@@ -19,7 +19,7 @@
 import { chromium } from 'playwright';
 import zlib from 'node:zlib';
 
-const URL = process.env.URL || 'http://127.0.0.1:4173/';
+const URL = (process.env.URL || 'http://127.0.0.1:4173/') + (process.env.QS ? `?${process.env.QS}` : '');
 const QUALITY = process.env.QUALITY || 'Mobile';
 const [W, H] = (process.env.VIEWPORT || '844x390').split('x').map(Number);
 const DPR = Number(process.env.DPR || 3);

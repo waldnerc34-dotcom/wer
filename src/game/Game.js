@@ -138,10 +138,14 @@ export class Game {
     await this.scenery.build(this.assets);
     this.renderer.scene.add(this.scenery.group);
 
-    this.onProgress?.(0.60, 'Building the paddock');
-    this.props = new Props(this.track, { density: this.renderer.settings.sceneryDensity });
-    await this.props.build(this.assets);
-    this.renderer.scene.add(this.props.group);
+    // `?props=0` leaves the circuit bare, which is how the cost of dressing
+    // it was measured in the first place.
+    if (new URLSearchParams(location.search).get('props') !== '0') {
+      this.onProgress?.(0.60, 'Building the paddock');
+      this.props = new Props(this.track, { density: this.renderer.settings.sceneryDensity });
+      await this.props.build(this.assets);
+      this.renderer.scene.add(this.props.group);
+    }
 
     if (circuit.sea) {
       // Waves cost fill rate over the largest area on screen, so they are a

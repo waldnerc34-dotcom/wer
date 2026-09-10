@@ -243,6 +243,18 @@ scaler = new ResolutionScaler({ target: 60, min: 0.62, max: 1, window: 30 });
 for (let i = 0; i < 300; i++) scaler.frame(i % 60 === 0 ? 1.2 : 1 / 62);
 check('ignores a single long hitch', scaler.scale === 1, `scale ${scaler.scale.toFixed(2)}`);
 
+// A machine that cannot draw a frame inside half a second is the machine
+// that most needs fewer pixels, and it was the one machine this ignored:
+// every sample discarded, a median that never arrives, and half a frame a
+// second forever.
+scaler = new ResolutionScaler({ target: 60, min: 0.35, max: 1, window: 30 });
+for (let i = 0; i < 2; i++) scaler.frame(2.5);
+check('one catastrophic frame is still just a hitch', scaler.scale === 1, `scale ${scaler.scale.toFixed(2)}`);
+scaler.frame(2.5);
+check('but three in a row is a machine asking for help', scaler.scale < 0.7, `scale ${scaler.scale.toFixed(2)}`);
+for (let i = 0; i < 30; i++) scaler.frame(2.5);
+check('and it keeps cutting until it can measure again', scaler.scale <= 0.35 + 1e-6, `floor ${scaler.scale.toFixed(2)}`);
+
 scaler = new ResolutionScaler({ target: 60, min: 0.62, max: 1, window: 30 });
 scaler.setEnabled(false);
 run(scaler, 10, 300);

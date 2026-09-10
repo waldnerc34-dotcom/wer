@@ -51,6 +51,8 @@ export class ResolutionScaler {
      * instead of another tenth of the resolution.
      */
     this.verdict = 0;
+    /** Consecutive frames too long to be evidence about anything but despair. */
+    this.stalls = 0;
   }
 
   /** Forgets the current window — after a resize, a pause, or a new session. */
@@ -79,9 +81,32 @@ export class ResolutionScaler {
    */
   frame(dt) {
     if (!this.enabled) return null;
-    // A frame this long is a tab switch, a shader compile or a breakpoint —
-    // evidence about the machine's schedule, not about its GPU.
-    if (!(dt > 0) || dt > 0.5) return null;
+    if (!(dt > 0)) return null;
+
+    if (dt > 0.5) {
+      // One frame this long is a tab switch, a shader compile or a
+      // breakpoint — evidence about the machine's schedule, not about its
+      // GPU — so it is thrown away.
+      //
+      // Three in a row is not a hitch. It is a machine that cannot draw this
+      // frame at all, and it is exactly the machine that most needs fewer
+      // pixels. Discarding every sample and waiting for a median that will
+      // never arrive leaves it at half a frame a second forever, which is
+      // how a preset nobody can run stays unrunnable. So: cut hard, and let
+      // the ordinary control law take over once frames are inside the range
+      // where measuring them means something.
+      if (++this.stalls < 3) return null;
+      this.stalls = 0;
+      this.samples.length = 0;
+      const before = this.scale;
+      this.scale = Math.max(this.min, this.scale * 0.6);
+      this.windows++;
+      this.verdict = -1;
+      if (this.scale === before) return null;
+      this.changes++;
+      return this.scale;
+    }
+    this.stalls = 0;
 
     this.samples.push(dt);
     if (this.samples.length < this.window) return null;
