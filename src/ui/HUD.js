@@ -212,9 +212,20 @@ export class HUD {
       el.body.classList.toggle('locked', t.lockup > 0.4 || t.spin > 0.4);
     }
 
-    this.#set('fps', e.fps, `${Math.round(state.fps)} fps`);
+    // Own up to the resolution: the number of pixels being drawn is not the
+    // size of the window, and on Ultra it is deliberately larger.
+    const r = state.render;
+    this.#set(
+      'fps',
+      e.fps,
+      r ? `${Math.round(state.fps)} fps · ${Math.round(r.x)}×${Math.round(r.y)}` : `${Math.round(state.fps)} fps`,
+    );
 
-    this.#drawMap(state, opponents);
+    // The minimap is a full canvas repaint. Twenty times a second is more
+    // than enough for a dot crawling around a circuit, and it gives the rest
+    // of the frame back.
+    this.mapClock = (this.mapClock ?? 0) + 1;
+    if (this.mapClock % 3 === 0) this.#drawMap(state, opponents);
   }
 
   #drawMap(state, opponents) {

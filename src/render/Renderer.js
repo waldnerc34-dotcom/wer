@@ -7,7 +7,9 @@ import {
   EffectComposer,
   EffectPass,
   KernelSize,
+  HueSaturationEffect,
   NoiseEffect,
+  NormalPass,
   RenderPass,
   SMAAEffect,
   ToneMappingEffect,
@@ -17,6 +19,8 @@ import {
 import { N8AOPostPass } from 'n8ao';
 
 import { RainDropsEffect, RainDropsOverlay, RainOnLens } from './RainDrops.js';
+import { ReflectionsEffect } from './Reflections.js';
+import { ResolutionScaler } from './Resolution.js';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { GroundedSkybox } from 'three/examples/jsm/objects/GroundedSkybox.js';
 
@@ -24,7 +28,20 @@ import { clamp } from '../core/MathUtils.js';
 
 const _size = new THREE.Vector2();
 
-/** Quality presets, from "runs on a phone" to "runs on a good GPU". */
+/**
+ * Quality presets, from "runs on a phone" to "renders at 4K and resolves it
+ * down to whatever panel you have".
+ *
+ * `pixelRatio` caps how many device pixels are spent per CSS pixel and
+ * `renderScale` multiplies that; above 1 it is supersampling, which is the
+ * oldest and best anti-aliasing there is. `superSampleTo` raises the scale
+ * further until the frame buffer is at least that many pixels across, so
+ * Ultra is 4K on a 1080p monitor too, not only on a 4K one.
+ *
+ * None of it is a promise the machine has to keep: `dynamicResolution` lets
+ * the renderer trade pixels back for frame rate, measured rather than
+ * guessed (see Resolution.js).
+ */
 export const QUALITY = {
   mobile: {
     label: 'Mobile',
@@ -51,6 +68,10 @@ export const QUALITY = {
     particles: 220,
     skidSegments: 320,
     skyResolution: 24,
+    reflections: false,
+    dynamicResolution: true,
+    targetFps: 60,
+    minScale: 0.6,
   },
   low: {
     label: 'Performance',
@@ -63,8 +84,15 @@ export const QUALITY = {
     bloom: true,
     motionBlur: false,
     smaa: false,
-    anisotropy: 4,
+    // The road at a grazing angle is most of the screen, and anisotropic
+    // filtering is the cheapest thing that fixes it. Phones were getting 8
+    // while this tier got 4, which is backwards.
+    anisotropy: 8,
     sceneryDensity: 0.35,
+    reflections: false,
+    dynamicResolution: true,
+    targetFps: 60,
+    minScale: 0.62,
   },
   medium: {
     label: 'Balanced',
@@ -80,6 +108,10 @@ export const QUALITY = {
     smaa: true,
     anisotropy: 8,
     sceneryDensity: 0.7,
+    reflections: false,
+    dynamicResolution: true,
+    targetFps: 60,
+    minScale: 0.65,
   },
   high: {
     label: 'Quality',
@@ -95,6 +127,40 @@ export const QUALITY = {
     smaa: true,
     anisotropy: 16,
     sceneryDensity: 1,
+    // Reflections at half-resolution normals: the extra geometry pass is the
+    // cost, and half-res normals are plenty for a road surface.
+    reflections: { steps: 20, refinements: 3, maxDistance: 70, normalScale: 0.5 },
+    dynamicResolution: true,
+    targetFps: 60,
+    minScale: 0.68,
+  },
+  ultra: {
+    label: 'Ultra · 4K',
+    pixelRatio: 2,
+    // Render above the display and resolve down. On a 1080p monitor this is
+    // a 4K frame buffer; on a 4K one it is 4K natively, with the scale left
+    // where the preset puts it.
+    renderScale: 1.25,
+    superSampleTo: 3840,
+    maxRenderScale: 2,
+    shadows: true,
+    shadowMapSize: 4096,
+    cascades: 4,
+    shadowDistance: 900,
+    ao: true,
+    aoQuality: 'medium',
+    bloom: true,
+    motionBlur: true,
+    smaa: true,
+    anisotropy: 16,
+    sceneryDensity: 1.25,
+    particles: 1100,
+    skidSegments: 1500,
+    skyResolution: 64,
+    reflections: { steps: 40, refinements: 5, maxDistance: 120, normalScale: 1 },
+    dynamicResolution: true,
+    targetFps: 60,
+    minScale: 0.7,
   },
 };
 
@@ -173,12 +239,21 @@ export class Renderer {
     // With a post chain, tone mapping is the last effect; without one the
     // main pass does it. AgX either way.
     this.renderer.toneMapping = this.usePost ? THREE.NoToneMapping : THREE.AgXToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    // A touch above neutral: AgX protects highlights so well that a
+    // straight 1.0 leaves the midtones darker than the scene really is.
+    this.renderer.toneMappingExposure = 1.15;
     this.renderer.shadowMap.enabled = this.settings.shadows;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.setPixelRatio(
-      Math.min(devicePixelRatio, this.settings.pixelRatio) * (this.settings.renderScale ?? 1),
-    );
+
+    // Pixels are the currency: `#baseScale` decides how many the preset asks
+    // for, and the scaler decides how many the machine can actually pay for.
+    this.scaler = new ResolutionScaler({
+      target: this.settings.targetFps ?? 60,
+      min: this.settings.minScale ?? 0.65,
+      max: 1,
+    });
+    this.scaler.setEnabled(this.settings.dynamicResolution !== false);
+    this.#applyResolution();
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.15, 6000);
@@ -192,6 +267,47 @@ export class Renderer {
 
     this.frameTimes = [];
     this.resize();
+  }
+
+  /* ------------------------------------------------------------ resolution */
+
+  /**
+   * Device pixels per CSS pixel the preset asks for, before the scaler has
+   * its say. Supersampling targets are met by raising the scale until the
+   * frame buffer is wide enough, which is what makes Ultra 4K on any panel.
+   */
+  #baseScale() {
+    const s = this.settings;
+    const dpr = Math.min(devicePixelRatio || 1, s.pixelRatio);
+    let scale = s.renderScale ?? 1;
+    if (s.superSampleTo) {
+      const cssWidth = this.canvas.clientWidth || window.innerWidth || 1280;
+      const needed = s.superSampleTo / Math.max(1, cssWidth * dpr);
+      scale = clamp(Math.max(scale, needed), scale, s.maxRenderScale ?? 2);
+    }
+    return dpr * scale;
+  }
+
+  /** Pushes the current resolution decision into the renderer's buffers. */
+  #applyResolution() {
+    const ratio = this.#baseScale() * (this.scaler?.scale ?? 1);
+    if (Math.abs(ratio - this.renderer.getPixelRatio()) < 1e-3) return false;
+    this.renderer.setPixelRatio(ratio);
+    return true;
+  }
+
+  /** How many pixels are actually being drawn, for the HUD to own up to. */
+  get drawingBufferSize() {
+    return this.renderer.getDrawingBufferSize(_size.clone());
+  }
+
+  /** Lets the player turn the trade of pixels for frame rate off. */
+  setDynamicResolution(on) {
+    this.scaler.setEnabled(on);
+    if (!on) {
+      this.scaler.scale = 1;
+      if (this.#applyResolution()) this.resize();
+    }
   }
 
   /* -------------------------------------------------------------- lighting */
@@ -225,7 +341,7 @@ export class Renderer {
 
     // A very small ambient term stands in for the light the HDRI cannot
     // deliver into deep crevices; image-based lighting does the rest.
-    this.hemi = new THREE.HemisphereLight(0x9fb6d4, 0x4a4238, 0.28);
+    this.hemi = new THREE.HemisphereLight(0x9fb6d4, 0x4a4238, 0.34);
     this.scene.add(this.hemi);
   }
 
@@ -263,6 +379,16 @@ export class Renderer {
     });
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
+    if (s.reflections) {
+      // Reflections need to know which way each surface faces. This is a
+      // second pass over the geometry with a normal-only material — no
+      // textures, no shadows, no lighting — and it can run at half
+      // resolution, which is plenty for a road.
+      this.normalPass = new NormalPass(this.scene, this.camera);
+      this.normalPass.resolution.scale = s.reflections.normalScale ?? 0.5;
+      this.composer.addPass(this.normalPass);
+    }
+
     if (s.ao) {
       this.ao = new N8AOPostPass(this.scene, this.camera, 1, 1);
       this.ao.configuration.aoRadius = 2.4;
@@ -284,30 +410,42 @@ export class Renderer {
     this.speedBlur = new SpeedBlurEffect();
     this.rainDrops = new RainDropsEffect();
 
+    if (s.reflections) {
+      this.reflections = new ReflectionsEffect(this.camera, s.reflections);
+      this.reflections.normalBuffer = this.normalPass.texture;
+    }
+
     this.chromatic = new ChromaticAberrationEffect({
       offset: new THREE.Vector2(0.00022, 0.00022),
       radialModulation: true,
       modulationOffset: 0.4,
     });
 
-    this.vignette = new VignetteEffect({ offset: 0.3, darkness: 0.4 });
+    // Enough to frame the image, not enough to make a night race unreadable.
+    this.vignette = new VignetteEffect({ offset: 0.35, darkness: 0.26 });
+
+    // AgX trades saturation for highlight roll-off; a little of it back.
+    this.saturation = new HueSaturationEffect({ saturation: 0.08 });
 
     // AgX holds highlights together far better than Reinhard on a scene lit
     // by a real HDRI, and keeps the sky from clipping to white.
     this.toneMapping = new ToneMappingEffect({
       mode: ToneMappingMode.AGX,
       resolution: 256,
-      whitePoint: 12,
-      middleGrey: 0.44,
+      whitePoint: 14,
+      middleGrey: 0.52,
     });
 
     this.grain = new NoiseEffect({ blendFunction: BlendFunction.OVERLAY, premultiply: true });
     this.grain.blendMode.opacity.value = 0.028;
 
     const effects = [];
+    // Reflections first: they are part of the image, so everything after —
+    // the bloom, the blur, the drops on the glass — sees them.
+    if (this.reflections) effects.push(this.reflections);
     if (s.motionBlur) effects.push(this.speedBlur);
     if (s.bloom) effects.push(this.bloom);
-    effects.push(this.rainDrops, this.chromatic, this.vignette, this.toneMapping, this.grain);
+    effects.push(this.rainDrops, this.chromatic, this.vignette, this.saturation, this.toneMapping, this.grain);
     this.composer.addPass(new EffectPass(this.camera, ...effects));
 
     if (s.smaa) {
@@ -327,7 +465,7 @@ export class Renderer {
    */
   setEnvironment({ envMap, background }, { groundRadius = 1900, groundHeight = 78 } = {}) {
     this.scene.environment = envMap;
-    this.scene.environmentIntensity = 1;
+    this.scene.environmentIntensity = 1.15;
     this.envMap = envMap;
 
     if (this.skybox) {
@@ -373,12 +511,24 @@ export class Renderer {
     const h = this.canvas.clientHeight || window.innerHeight;
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.#applyResolution();
+    this.scaler.reset();
     this.renderer.setSize(w, h, false);
     this.composer?.setSize(w, h);
     this.ao?.setSize(w, h);
     this.csm?.updateFrustums();
     const size = this.renderer.getDrawingBufferSize(_size);
     this.rainOnLens?.resize(Math.max(1, size.x), Math.max(1, size.y));
+  }
+
+  /**
+   * How mirror-like the world is, which is a property of the weather: a
+   * soaked circuit reflects, dry tarmac scatters.
+   *
+   * @param {number} wetness 0 dry … 1 soaked
+   */
+  setReflectivity(wetness) {
+    this.reflections?.setStrength(clamp(wetness, 0, 1));
   }
 
   /** How much rain is on the lens: 0 none, 1 rain, 2 storm. */
@@ -402,11 +552,27 @@ export class Renderer {
   }
 
   render(dt) {
+    // Trade pixels for frame rate, or take them back when there is room.
+    if (this.scaler.frame(dt) !== null) {
+      this.#applyResolution();
+      this.#resizeBuffers();
+    }
     this.csm?.update();
     this.rainOnLens.update(dt);
     if (this.composer) this.composer.render(dt);
     else if (this.rainOnLens.active) this.rainOverlay.render(this.scene, this.camera);
     else this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Re-sizes every buffer to the current pixel ratio, without touching the camera. */
+  #resizeBuffers() {
+    const w = this.canvas.clientWidth || window.innerWidth;
+    const h = this.canvas.clientHeight || window.innerHeight;
+    this.renderer.setSize(w, h, false);
+    this.composer?.setSize(w, h);
+    this.ao?.setSize(w, h);
+    const size = this.renderer.getDrawingBufferSize(_size);
+    this.rainOnLens?.resize(Math.max(1, size.x), Math.max(1, size.y));
   }
 
   dispose() {

@@ -160,6 +160,8 @@ export class Weather {
     game.rain?.setIntensity(w.rain, w.wind);
     game.splashes?.setIntensity(w.rain);
     game.renderer.setRainOnLens(w.rain);
+    // A soaked circuit is a mirror; dry tarmac scatters almost everything.
+    game.renderer.setReflectivity(w.wet);
     game.scenery?.setWind(w.wind);
     game.audio?.setWeather(w.rain, w.wind);
 

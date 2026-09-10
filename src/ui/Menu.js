@@ -326,6 +326,9 @@ function guessQuality(touch) {
   if (mobile) return 'mobile';
   if (mem <= 4 || cores <= 4) return 'low';
   if (mem <= 8 || cores <= 8) return 'medium';
+  // Ultra is never guessed: it supersamples to 4K, which is a choice a
+  // player makes, not one to spring on them. Dynamic resolution will hold
+  // the frame rate either way.
   return 'high';
 }
 
@@ -334,7 +337,8 @@ function qualityNote(id) {
     mobile: 'Phones and tablets',
     low: 'No AO, fewer trees',
     medium: 'AO, motion blur, SMAA',
-    high: '4K shadows, full scenery',
+    high: 'Ray-traced reflections',
+    ultra: 'Renders at 4K, resolves down',
   }[id];
 }
 

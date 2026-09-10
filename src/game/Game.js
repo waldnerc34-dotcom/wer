@@ -512,6 +512,9 @@ export class Game {
         surface: w.surface,
       })),
       fps: this.fps,
+      // What is actually being drawn, which is not the size of the window:
+      // Ultra renders above it, and dynamic resolution moves it.
+      render: this.renderer.drawingBufferSize,
       position: this.#racePosition(),
       opponents: this.opponents.length,
       camera: this.camera.mode,

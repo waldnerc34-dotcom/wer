@@ -52,6 +52,11 @@ export class ParticleSystem {
     this.spin = new Float32Array(count);
     this.tint = new Float32Array(count * 3);
 
+    // A slot that has been parked off screen stays parked: without this the
+    // system rewrites every dead instance's matrix on every frame, which on
+    // a dry lap is a thousand matrices a frame to draw nothing.
+    this.parked = new Uint8Array(count).fill(1);
+    this.aliveCount = 0;
     this.cursor = 0;
     this.dummy = new THREE.Object3D();
     this.rand = makeRandom(991);
@@ -71,6 +76,8 @@ export class ParticleSystem {
   } = {}) {
     const i = this.cursor;
     this.cursor = (this.cursor + 1) % this.count;
+    this.parked[i] = 0;
+    this.settled = false;
 
     const r = this.rand;
     this.position[i * 3] = origin.x + (r() - 0.5) * spread;
@@ -92,15 +99,24 @@ export class ParticleSystem {
   }
 
   update(dt, camera) {
+    // Nothing alive and nothing left to tidy: the whole system costs one
+    // comparison, and the mesh is not drawn at all.
+    if (this.aliveCount === 0 && this.settled) {
+      this.mesh.visible = false;
+      return;
+    }
+
     const d = this.dummy;
     let alive = 0;
 
     for (let i = 0; i < this.count; i++) {
       if (this.life[i] <= 0) {
+        if (this.parked[i]) continue;
         d.position.set(0, -9999, 0);
         d.scale.setScalar(0.0001);
         d.updateMatrix();
         this.mesh.setMatrixAt(i, d.matrix);
+        this.parked[i] = 1;
         continue;
       }
 
@@ -140,6 +156,9 @@ export class ParticleSystem {
 
     this.mesh.instanceMatrix.needsUpdate = true;
     this.mesh.instanceColor.needsUpdate = true;
+    this.mesh.visible = alive > 0;
+    // One more pass is owed after the last particle dies, to park it.
+    this.settled = alive === 0 && this.aliveCount === 0;
     this.aliveCount = alive;
   }
 }

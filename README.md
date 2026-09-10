@@ -80,11 +80,12 @@ boot where it is going.
 
 ## On a phone
 
-Open the link above, tap **Go racing**, and turn the phone sideways. The left
-thumb gets an analogue steering slider (or tilt the phone like a wheel — pick
-*Tilt* on the start screen), the right thumb gets brake and throttle pads with
-a handbrake above them, and the small buttons along the top switch camera,
-look behind, rejoin the circuit and pause. Add it to your home screen for a
+Open the link above, tap **Go racing**, and turn the phone sideways. Steering
+is the whole lower-left quarter of the screen: wherever the thumb lands is
+straight ahead, and the steer follows how far it moves from there (or tilt the
+phone like a wheel — pick *Tilt* on the start screen). The right thumb gets
+brake and throttle pads with a handbrake above them, and the small buttons
+along the top switch camera, look behind, rejoin the circuit and pause. Add it to your home screen for a
 full-screen app with no browser chrome.
 
 Phones get their own render path rather than a scaled-down desktop one:
@@ -92,7 +93,10 @@ Phones get their own render path rather than a scaled-down desktop one:
 - No post-processing chain. Tone mapping runs in the main pass and the
   hardware does the anti-aliasing — mobile GPUs are tile-based, so MSAA is
   close to free there while a half-float composer is anything but.
-- Rendering at 0.8× CSS pixels, never at the 3× native density.
+- Rendering at 1.5 device pixels per CSS pixel, never at the 3× native
+  density — crisp on a retina panel at half the cost of native.
+- Dynamic resolution on top of that, so a hot phone throttling mid-race
+  gives up pixels rather than frames.
 - Two shadow cascades at 1024², 140 m of shadow range, about half the
   scenery, and a quarter of the particle budget.
 - A session downloads about 7 MB. Models are Draco-compressed with WebP
@@ -513,9 +517,66 @@ three.js on WebGL2, with a post chain built on `postprocessing`:
   HDRI.
 - Car paint is a metallic base coat under a near-perfect clear coat, with a
   fine flake normal map that only affects the base layer.
+- Screen-space ray-traced reflections on the two top presets (below).
 
-Four quality presets are selectable at launch and guessed from the device on
-first load; a coarse pointer (a finger) selects the mobile preset.
+### Ray-traced reflections
+
+`src/render/Reflections.js` marches a reflected ray through the depth buffer,
+per pixel. For each surface the shader reconstructs where it is in view
+space, reflects the eye ray off the normal from a normal pass, and steps
+along that ray until it passes behind something; the colour already drawn
+there is the reflection, refined by a short binary search so it lands on the
+surface rather than a stride past it. It is ray tracing against the depth
+buffer rather than against triangles — what a browser can afford, and what
+console racing games shipped for a decade.
+
+The march is geometric, starting at 35 cm and growing a fifth each step,
+because a uniform stride long enough to cross a circuit is metres wide at the
+first step and a ray that moves metres at a time steps clean over a car —
+which is the reflection worth having. How far past a surface still counts as
+a hit grows with the stride, or a long step reports a miss for something it
+plainly crossed.
+
+Strength comes from the weather, which is where it belongs: a soaked circuit
+is close to a mirror and reflects the cars, the barriers and the kerbs, while
+dry tarmac scatters nearly everything and gets a weak, jittered sheen at
+grazing angles only. What the camera cannot see cannot be reflected, so rays
+that run off the screen, or turn back toward the viewer, fade out and let the
+prefiltered environment map show through.
+
+### Resolution, and the frame rate
+
+`src/render/Resolution.js` measures how long frames take and scales the pixel
+count to fit. It decides on the **median** of a window of frames, so one
+hitch while a shader compiles does not drop the resolution; it corrects by
+the square root of the overshoot, because cost goes with pixels and pixels go
+with the square of the scale, so the correction lands in one move instead of
+hunting; and it comes down quickly but goes back up slowly. Everything the
+player chose — shadow maps, the post chain, the scenery — is left alone.
+
+**Ultra renders above the display and resolves down.** `superSampleTo` raises
+the scale until the frame buffer is at least 3840 across, so it is a 4K frame
+on a 1080p monitor too, not only on a 4K one; supersampling is the oldest and
+best anti-aliasing there is. The HUD prints the number of pixels actually
+being drawn next to the frame rate, so the setting has to own up to itself.
+
+Two things that were quietly costing frames everywhere: the particle systems
+rewrote the transform of every dead particle on every frame — a thousand
+matrices a frame to draw nothing on a dry lap — and now park a slot once and
+skip it until it is reused, hiding the mesh entirely when nothing is alive;
+and the minimap, a full canvas repaint, now redraws at 20 Hz rather than at
+the frame rate.
+
+Five quality presets are selectable at launch and guessed from the device on
+first load; a coarse pointer (a finger) selects the mobile preset. Ultra is
+never guessed — supersampling to 4K is a choice a player makes, not one to
+spring on them.
+
+`tests/render.test.mjs` asserts the presets form a ladder (nothing gets worse
+as the tier rises), that Ultra really does ask for a 4K frame buffer at a
+range of display sizes, and that the resolution controller drops under load,
+recovers when there is room, holds steady at the target and ignores a single
+long hitch.
 
 ### Asset pipeline
 
