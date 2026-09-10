@@ -5,7 +5,9 @@
  *   node tests/race.test.mjs
  */
 
+import * as THREE from 'three';
 import { RACE_LENGTHS, RaceControl } from '../src/game/RaceControl.js';
+import { Ocean } from '../src/track/Ocean.js';
 import { Props } from '../src/track/Props.js';
 import { terrainHeightAt } from '../src/track/TrackBuilder.js';
 import { CIRCUITS } from '../src/track/Layout.js';
@@ -173,6 +175,47 @@ check(
   sparse.props.count < a.props.count * 0.72,
   `${sparse.props.count} against ${a.props.count}`,
 );
+
+/* ================================================================ the sea */
+
+// This section exists because of a bug that shipped. The cheap-tier variant
+// skipped its wave shader by returning early from the constructor, which also
+// skipped building the mesh — so the scene was handed an undefined child, the
+// frame loop read `.position` off it and threw, and every frame after that
+// died before the renderer ran. A black canvas with a live HUD, on precisely
+// the tier the change was meant to help. Whatever else an Ocean does or does
+// not do, it has a mesh.
+console.log('\n=== the sea ===');
+
+for (const waves of [true, false]) {
+  const sea = new Ocean({ level: -40, waves });
+  const label = waves ? 'with waves' : 'without waves';
+  check(`${label}: it has something to add to the scene`, Boolean(sea.mesh?.isObject3D));
+  check(`${label}: sitting at the water line`, sea.mesh.position.y === -40);
+  check(`${label}: with a material`, Boolean(sea.material));
+
+  // The frame loop calls this every frame with the camera; it must not throw
+  // and must follow the camera, or the horizon runs out.
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(120, 3, -60);
+  let threw = null;
+  try {
+    sea.update(1 / 60, camera);
+  } catch (e) {
+    threw = e;
+  }
+  check(`${label}: a frame does not throw`, threw === null, threw?.message);
+  check(
+    `${label}: and the sea follows the car`,
+    sea.mesh.position.x === 120 && sea.mesh.position.z === -60 && sea.mesh.position.y === -40,
+  );
+  check(`${label}: time advances`, sea.time.value > 0);
+  sea.dispose();
+}
+
+const quiet = new Ocean({ waves: false });
+check('the cheap sea has no per-pixel shader attached', !quiet.material.onBeforeCompile.name || quiet.material.onBeforeCompile.length === 0);
+check('and it is rougher to make up for it', quiet.material.roughness > new Ocean({ waves: true }).material.roughness);
 
 console.log(failures ? `\n✖ ${failures} check(s) failed` : '\n✔ all checks passed');
 process.exit(failures ? 1 : 0);

@@ -46,8 +46,14 @@ export class Ocean {
     // is one of the largest things on screen by area, and a per-pixel normal
     // over that area is not what a phone should be spending its fill rate on
     // — a flat, slightly rough mirror of the same sky still reads as water.
-    if (!waves) return;
-    this.material.onBeforeCompile = (shader) => {
+    //
+    // Skipped by not attaching the shader hook, and emphatically *not* by
+    // returning from the constructor early. That is what the first version
+    // did, and it left an Ocean with no `mesh` at all: the scene was handed
+    // an undefined child, the frame loop read `.position` off it and threw,
+    // and every frame after that died before the renderer ran. A black
+    // canvas with a live HUD, on exactly the tier this was meant to help.
+    if (waves) this.material.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = this.time;
       shader.uniforms.uWaves = { value: this.normals ?? null };
       shader.vertexShader = shader.vertexShader.replace(

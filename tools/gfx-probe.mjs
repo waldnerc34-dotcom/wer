@@ -158,14 +158,28 @@ for (let y = (height / 4) | 0; y < (height * 3) / 4; y += 3) {
 const litShare = lit / total;
 const mean = sum / total;
 
+// Errors first, and never folded into the tail of a long report. A page that
+// throws every frame is the single most important thing this can find, and
+// the last time it found one the line was cut off by a `sed` on the output.
+const errors = logs.filter((l) => l.startsWith('[error]') || l.startsWith('[pageerror]'));
+if (errors.length) {
+  const seen = new Map();
+  for (const e of errors) seen.set(e, (seen.get(e) ?? 0) + 1);
+  console.log(`\n!! ${errors.length} console error(s):`);
+  for (const [line, n] of seen) console.log(`   ${line}${n > 1 ? ` (×${n})` : ''}`);
+  console.log('');
+}
+
 console.log(`${QUALITY} @ ${W}×${H} dpr ${DPR}`);
 console.log(`  drawing buffer ${state.drawing} · context ${state.lost ? 'LOST' : 'ok'}`);
 const median = [...frames].sort((a, b) => a - b)[frames.length >> 1];
 console.log(`  frame ${median.toFixed(0)} ms (${(1000 / median).toFixed(1)} fps) · [${frames.map((f) => f.toFixed(0)).join(', ')}]`);
 console.log(`  ${(litShare * 100).toFixed(1)}% lit · mean ${mean.toFixed(0)}/255 · ${tones.size} tones`);
 if (state.hud) console.log(`  hud: ${state.hud.trim()}`);
-if (logs.length) console.log('  console:\n' + logs.slice(0, 14).map((l) => '    ' + l).join('\n'));
+const noise = logs.filter((l) => !errors.includes(l));
+if (noise.length) console.log('  console:\n' + noise.slice(0, 8).map((l) => '    ' + l).join('\n'));
 await browser.close();
 // A live frame of a circuit in daylight is nearly all lit and has hundreds of
 // tones in it. A dead one is neither.
-process.exit(state.lost || litShare < 0.85 || tones.size < 60 ? 1 : 0);
+// A page that throws is a failure even if the pixels happen to look fine.
+process.exit(errors.length || state.lost || litShare < 0.85 || tones.size < 60 ? 1 : 0);
