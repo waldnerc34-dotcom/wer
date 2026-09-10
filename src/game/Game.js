@@ -7,6 +7,8 @@ import { clamp, damp, wrapDelta } from '../core/MathUtils.js';
 import { CarRig } from '../render/CarRig.js';
 import { TyreEffects } from '../render/Effects.js';
 import { RemoteCar } from '../net/Remote.js';
+import { GhostCar } from '../render/GhostCar.js';
+import { GhostRecorder, decodeGhost, ghostFromText, ghostToText } from './Ghost.js';
 import { Materials } from '../render/Materials.js';
 import { RacingLineMesh } from '../render/RacingLine.js';
 import { RainSystem } from '../render/Rain.js';
@@ -104,6 +106,10 @@ export class Game {
     net = null,
     remotes = [],
     slot = 0,
+    // A lap to race against: 'off', 'mine' (your own best, passed in as
+    // `myGhost`) or 'rival' (the recorded lap that ships with the game).
+    ghost = 'off',
+    myGhost = null,
   } = {}) {
     this.net = net;
     this.mySlot = slot;
@@ -176,6 +182,7 @@ export class Game {
 
     this.onProgress?.(0.72, 'Warming the cars');
     await this.#spawnCars(carDef, mode === 'race' ? opponents : 0, remotes);
+    await this.#spawnGhost(circuit, carDef, ghost, myGhost);
     await this.audio.load(this.assets);
 
     this.onProgress?.(0.86, 'Setting the weather');
@@ -290,7 +297,58 @@ export class Game {
     }
   }
 
+  /**
+   * Puts a recorded lap on the circuit beside you.
+   *
+   * The trace says which car it was driven in only by implication — it is
+   * whatever the caller loaded — so the model used is the player's own. A
+   * ghost is a marker rather than a car, and a marker in the shape of the car
+   * you are driving is the easiest one to read a gap against.
+   */
+  async #spawnGhost(circuit, carDef, mode, mine) {
+    if (!mode || mode === 'off') return;
+
+    let decoded = null;
+    let label = 'Ghost';
+
+    if (mode === 'mine') {
+      decoded = mine ? ghostFromText(mine) : null;
+      label = 'Your best';
+    } else {
+      // The shipped lap for this car, or failing that the one for any car on
+      // this circuit — a ghost in a different car is still a line to follow,
+      // and the label says which it was.
+      const bytes =
+        (await this.assets.bytes(`ghosts/${circuit.id}-${carDef.id}.bin`)) ??
+        (await this.#anyGhostFor(circuit));
+      decoded = bytes ? decodeGhost(bytes) : null;
+      label = 'Recorded lap';
+    }
+    if (!decoded?.count) return;
+
+    this.ghost = new GhostCar(await this.assets.instance(carDef.model), decoded, {
+      spec: carDef.spec,
+      label,
+    });
+    this.renderer.scene.add(this.ghost.group);
+  }
+
+  async #anyGhostFor(circuit) {
+    for (const car of availableCars()) {
+      const bytes = await this.assets.bytes(`ghosts/${circuit.id}-${car.id}.bin`);
+      if (bytes) return bytes;
+    }
+    return null;
+  }
+
   #teardown() {
+    if (this.ghost) {
+      this.renderer.scene.remove(this.ghost.group);
+      this.ghost.dispose();
+      this.ghost = null;
+    }
+    this.ghostRecorder = null;
+    this.seenLap = null;
     if (this.trackGroup) {
       this.renderer.scene.remove(this.trackGroup);
       disposeTree(this.trackGroup);
@@ -503,6 +561,14 @@ export class Game {
     this.#slipstream(q);
     this.#checkFlag(q);
 
+    // The ghost runs on the clock of the lap being driven now, so what you see
+    // beside you is where that lap was at this point on its own.
+    const intoLap = this.timer.time - this.timer.lapStart;
+    this.ghost?.update(intoLap, this.timer.started && !this.race.holding);
+    // And this lap is recorded as it happens, in case it turns out to be the
+    // one worth keeping.
+    this.ghostRecorder?.update(dt, player);
+
     // Twenty times a second, whatever the frame rate: the far end interpolates
     // between snapshots and gains nothing from more of them.
     this.net?.send(dt, player);
@@ -558,6 +624,12 @@ export class Game {
     if (lap === this.seenLap) return;
     const previous = this.seenLap ?? 0;
     this.seenLap = lap;
+
+    // Seal whatever was being recorded and start the next one. The first
+    // crossing has nothing behind it — that was the out-lap.
+    const sealed = this.ghostRecorder?.finish(this.timer.lastLap) ?? null;
+    this.ghostRecorder = new GhostRecorder(this.track.gridSlot(this.mySlot).position);
+
     if (lap <= previous || !this.timer.lastLap) return;
 
     const best = this.timer.bestLap !== null && this.timer.lastLap <= this.timer.bestLap;
@@ -567,6 +639,8 @@ export class Game {
       sectors: this.timer.lastSectors,
       valid: !this.timer.invalid,
       best,
+      // Only a clean personal best is worth keeping to race against.
+      trace: best && !this.timer.invalid && sealed ? ghostToText(sealed) : null,
     });
     this.net?.reportLap({ n: lap, time: this.timer.lastLap, best });
   }

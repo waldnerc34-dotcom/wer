@@ -321,13 +321,25 @@ async function start(selection) {
         lap: lap.time,
         sectors: lap.sectors,
       });
+      // A quicker lap replaces the one you were racing against, so the ghost
+      // you meet next session is the best you have ever done here.
+      if (filed.improved && lap.trace) {
+        records.saveGhost(selection.circuitId, selection.carId, lap.trace);
+      }
       // A new personal best is worth the room knowing about immediately.
       if (filed.improved && net) {
         net.shareRecords(selection.circuitId, records.mine(selection.circuitId, records.driver));
       }
     };
 
-    await game.load(selection);
+    await game.load({
+      ...selection,
+      // Your own best lap of this circuit in this car, if there is one to race.
+      myGhost:
+        selection.ghost === 'mine'
+          ? records.loadGhost(selection.circuitId, selection.carId)
+          : null,
+    });
 
     hud = new HUD(hudRoot, game.track);
     tags?.dispose();

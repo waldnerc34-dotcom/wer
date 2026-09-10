@@ -33,6 +33,9 @@ export class Menu {
       opponents: touch ? 3 : 5,
       steering: 'touch',
       weather: 'clear',
+      // A lap to chase from the first session, rather than an empty circuit
+      // and a number that means nothing until you have set a second one.
+      ghost: 'rival',
       // Long enough that the start is not the whole race, short enough that
       // a phone session fits in a bus stop.
       laps: 5,
@@ -95,6 +98,7 @@ export class Menu {
       <section class="field" data-field="circuit"><header><label>Circuit</label><span data-sub></span></header><div class="choices outlines"></div></section>
       <section class="field" data-field="weather"><header><label>Weather</label><span data-sub></span></header><div class="choices chips"></div></section>
       <section class="field" data-field="assist"><header><label>Braking help</label><span data-sub></span></header><div class="choices seg"></div></section>
+      <section class="field" data-field="ghost"><header><label>Ghost</label><span data-sub></span></header><div class="choices seg"></div></section>
       <div class="row2">
         <section class="field" data-field="mode"><label>Session</label><div class="choices seg"></div></section>
         <section class="field" data-field="laps" hidden><label>Distance</label><div class="choices seg"></div></section>
@@ -185,6 +189,12 @@ export class Menu {
         { id: 'tilt', label: 'Tilt', note: 'Hold the phone like a wheel' },
       ], (v) => (this.selection.steering = v), this.selection.steering);
     }
+
+    this.#choices(picker, 'ghost', 'seg', [
+      { id: 'off', label: 'None', note: 'Just you and the clock' },
+      { id: 'rival', label: 'Recorded lap', note: 'A lap driven for you to chase' },
+      { id: 'mine', label: 'Your best', note: 'Race the quickest lap you have set here' },
+    ], (v) => (this.selection.ghost = v), this.selection.ghost);
 
     picker.querySelector('[data-start]').addEventListener('click', () => {
       onStart({ ...this.selection });

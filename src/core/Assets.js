@@ -147,6 +147,26 @@ export class Assets {
     return (await this.sounds.get(path)).slice(0);
   }
 
+  /**
+   * Any small binary file, or null if this build does not carry it.
+   *
+   * Unlike everything else here, a missing one is not an error: ghosts are a
+   * nicety, and a build that left them out to fit in a page should still run.
+   */
+  async bytes(path) {
+    this.blobs ??= new Map();
+    if (!this.blobs.has(path)) {
+      const load = this.embedded
+        ? Promise.resolve(EMBEDDED[path] ? bytesOf(EMBEDDED[path]) : null)
+        : fetch(this.url(path))
+            .then((r) => (r.ok ? r.arrayBuffer() : null))
+            .catch(() => null);
+      this.blobs.set(path, load);
+    }
+    const buffer = await this.blobs.get(path);
+    return buffer ? new Uint8Array(buffer) : null;
+  }
+
   /* ---------------------------------------------------------- environment */
 
   /**

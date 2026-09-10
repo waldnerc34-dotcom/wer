@@ -1144,9 +1144,16 @@ export const CARS = [
       dragArea: 1.35,
       downforceFront: 3.6,
       downforceRear: 4.4,
-      // Downforce does nothing at walking pace, so the AI is told to trust
-      // the car rather less than the tyre model alone would suggest.
-      aiGrip: 0.94,
+      // How much of the car a computed driver is told to use, and the one
+      // number here that was measured rather than reasoned about. A driver
+      // has no stability control, slicks let go without warning, and the
+      // planner sizes a corner from the tyre coefficient without knowing the
+      // wings are pressing down twice the car's weight. At 0.94 it arrived at
+      // turn eleven of Apex International far too quickly, spun, and spent
+      // the rest of the session circling the run-off; at 0.88 it still did on
+      // that one circuit. 0.82 is clean on all five with a second and a half
+      // in hand, which is a trade worth making for a car that never crashes.
+      aiGrip: 0.82,
       inertia: { pitch: 1250, yaw: 1150, roll: 230 },
       front: {
         track: 1.62,

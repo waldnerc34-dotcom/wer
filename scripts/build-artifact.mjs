@@ -89,6 +89,14 @@ const HDRIS = [{ path: 'hdri/venice_sunset_1k.hdr', width: 768 }];
 // The recordings the audio engine plays.
 const SOUNDS = ['sounds/engine.mp3', 'sounds/tyres.mp3', 'sounds/crash.mp3'];
 
+// A recorded lap of each circuit to race against. Only in the default car:
+// they are fifteen kilobytes each and there is not room in one page for a
+// lap per car as well as the cars themselves. Whichever car you pick, the
+// line is still the line.
+const GHOSTS = ['apex', 'coastal', 'silverton', 'aigle', 'speedbowl'].map(
+  (id) => `ghosts/${id}-rosso.bin`,
+);
+
 // Car thumbnails for the picker, as data: URIs like the textures.
 const THUMBS = ['rosso', 'concept', 'porsche', 'urus'].map((id) => `thumbs/${id}.webp`);
 
@@ -293,6 +301,15 @@ for (const snd of SOUNDS) {
   assets[snd] = bytes.toString('base64');
   sizes.push([snd, bytes.length]);
   console.log(`  ${snd.padEnd(34)} ${kb(bytes.length)}`);
+}
+
+console.log('· ghosts');
+for (const ghost of GHOSTS) {
+  const bytes = await readFile(join(ASSETS, ghost)).catch(() => null);
+  if (!bytes) continue;
+  assets[ghost] = bytes.toString('base64');
+  sizes.push([ghost, bytes.length]);
+  console.log(`  ${ghost.padEnd(34)} ${kb(bytes.length)}`);
 }
 
 /* --------------------------------------------------------------- build --- */
