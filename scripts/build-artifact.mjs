@@ -51,19 +51,17 @@ const MODELS = [
   ...['tree3', 'tree4', 'bush1', 'bush2', 'bush3', 'bush4', 'bush5', 'rocks1', 'rocks2', 'rocks3', 'rocks4'].map(
     (n) => ({ path: `models/scenery/${n}.glb`, texture: 256, simplify: null }),
   ),
-  // Trackside props, at a fraction of their download textures. These are what
-  // make the far side of the barrier somewhere rather than nowhere, and each
-  // is a single primitive — so the set costs less page than one car.
-  //
-  // The inn, the sawmill and the two crate models are left out of *this*
-  // build only. Between them they are four megabytes of a sixteen-megabyte
-  // page, which is a quarter of the budget for four buildings nobody drives
-  // past closer than sixty metres. Props.js treats a model it cannot load as
-  // a model that is not there, so the hosted build keeps them and the
-  // single-file one quietly does without.
-  ...['cottage', 'well', 'wagon', 'fence', 'wall', 'lightpost', 'barrel', 'car'].map(
-    (n) => ({ path: `models/props/${n}.glb`, texture: 192, simplify: null }),
-  ),
+  // Trackside props: what makes the far side of the barrier somewhere rather
+  // than nowhere. All of them fit now — the whole set is two hundred
+  // kilobytes once the optimiser has capped its textures, which is less than
+  // one of the three that used to carry a 4269-pixel map for a wooden crate.
+  ...[
+    'cottage', 'inn', 'sawmill', 'well', 'wagon', 'fence', 'wall', 'lightpost', 'barrel', 'car',
+    // The single-file build cannot carry a Draco decoder, so geometry ships
+    // raw here — a prop that is twelve kilobytes on the hosted site is a
+    // hundred and thirty in the page. The set is chosen for what is visible
+    // from the road; the yard clutter is left to the hosted build.
+  ].map((n) => ({ path: `models/props/${n}.glb`, texture: 192, simplify: null })),
 ];
 
 const TEXTURES = [
