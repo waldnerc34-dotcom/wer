@@ -47,7 +47,15 @@ const MODELS = [
   { path: 'models/cars/ferrari.glb', texture: 1024, rebuild: true, simplify: { ratio: 0.35, error: 0.004 } },
   { path: 'models/cars/concept.glb', texture: 512, simplify: { ratio: 0.36, error: 0.0015 } },
   { path: 'models/cars/porsche911.glb', texture: 768, simplify: { ratio: 0.42, error: 0.0012 } },
-  { path: 'models/cars/urus.glb', texture: 768, simplify: { ratio: 0.55, error: 0.0012 } },
+  // The grand prix car is the headline of the garage and has to be in here,
+  // but it is also by far the heaviest thing in it. Cut hard — a single-file
+  // page has 16 MB for everything, and the wings and the tyres carry the
+  // silhouette rather than the texture resolution does.
+  //
+  // The Urus is the price of it. Every car in the garage is on the served
+  // build; this list is what fits in one page, and a 2.2-tonne SUV is the
+  // one whose absence is least felt on a circuit.
+  { path: 'models/cars/f1.glb', texture: 384, simplify: { ratio: 0.22, error: 0.002 } },
   ...['tree3', 'tree4', 'bush1', 'bush2', 'bush3', 'bush4', 'bush5', 'rocks1', 'rocks2', 'rocks3', 'rocks4'].map(
     (n) => ({ path: `models/scenery/${n}.glb`, texture: 256, simplify: null }),
   ),
