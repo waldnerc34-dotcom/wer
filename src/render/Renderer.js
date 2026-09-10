@@ -672,7 +672,16 @@ export class Renderer {
     if (this.atmosphere) effects.push(this.atmosphere);
     if (s.motionBlur) effects.push(this.speedBlur);
     if (s.bloom) effects.push(this.bloom);
-    effects.push(this.rainDrops, this.chromatic, this.vignette, this.saturation, this.toneMapping, this.grain);
+    effects.push(this.rainDrops, this.chromatic, this.vignette, this.saturation);
+    // And again immediately before the tone mapper. The first guard cleans
+    // what the scene handed over; this one cleans what the chain added to it,
+    // and the bloom in particular — it builds its mip chain from the pass
+    // input rather than from the accumulated colour, so it blooms the raw
+    // captured sun (which is what you want it to do) and then adds the result
+    // back on top (which puts the range right back out again). The tone
+    // mapper is the one pass that must never see a number it cannot fit.
+    effects.push(new HighlightGuard(32));
+    effects.push(this.toneMapping, this.grain);
     this.composer.addPass(new EffectPass(this.camera, ...effects));
 
     if (s.smaa) {
