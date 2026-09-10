@@ -17,6 +17,8 @@
     "test:race": "node tests/race.test.mjs",
     "shots": "node tools/screenshot.mjs ./shots",
     "probe": "node tools/gfx-probe.mjs",
+    "probe:net": "node tools/net-probe.mjs",
+    "probe:lobby": "node tools/lobby-probe.mjs",
     "test:effects": "node tests/effects.test.mjs",
     "test:net": "node tests/net.test.mjs",
     "assets:fetch": "node scripts/fetch-assets.mjs",

@@ -105,18 +105,20 @@ export class Room {
 
     for (const [name, handler] of this.handlers) this.#bind(name, handler);
 
-    this.room.onPeerJoin((peerId) => {
+    // Properties rather than methods: Trystero calls whatever is assigned
+    // here, and assigning over them is the documented way to listen.
+    this.room.onPeerJoin = (peerId) => {
       this.sync.set(peerId, new Sync());
       this.#openChannel(peerId);
       this.onJoin?.(peerId);
-    });
+    };
 
-    this.room.onPeerLeave((peerId) => {
+    this.room.onPeerLeave = (peerId) => {
       this.channels.get(peerId)?.close();
       this.channels.delete(peerId);
       this.sync.delete(peerId);
       this.onLeave?.(peerId);
-    });
+    };
 
     this.timer = setInterval(() => this.#syncAll(), SYNC_INTERVAL);
     return this.room;
@@ -127,7 +129,8 @@ export class Room {
     for (const ch of this.channels.values()) ch.close();
     this.channels.clear();
     this.sync.clear();
-    this.room?.leave();
+    this.actions.clear();
+    this.room?.leave().catch(() => {});
     this.room = null;
     this.joined = false;
   }
@@ -153,16 +156,19 @@ export class Room {
     this.handlers.set(name, handler);
     if (this.room) this.#bind(name, handler);
     return (payload, target) => {
-      const send = this.actions.get(name);
-      if (send) send(payload, target);
+      const action = this.actions.get(name);
+      // `target` is a peer id, or undefined for everybody. Sending is a
+      // promise; a peer that vanished mid-send is not worth an unhandled
+      // rejection.
+      action?.send(payload, target ? { target } : undefined).catch(() => {});
     };
   }
 
   #bind(name, handler) {
     if (this.actions.has(name)) return;
-    const [send, receive] = this.room.makeAction(name);
-    this.actions.set(name, send);
-    receive((payload, peerId) => handler(payload, peerId));
+    const action = this.room.makeAction(name);
+    this.actions.set(name, action);
+    action.onMessage = (payload, context) => handler(payload, context?.peerId);
   }
 
   /* ----------------------------------------------------- unreliable side */

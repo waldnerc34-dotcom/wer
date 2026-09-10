@@ -4,6 +4,10 @@ import { TouchControls } from './core/Touch.js';
 import { Game, availableCars } from './game/Game.js';
 import { HUD } from './ui/HUD.js';
 import { Menu } from './ui/Menu.js';
+import { Lobby } from './ui/Lobby.js';
+import { NameTags } from './ui/NameTags.js';
+import { Multiplayer, makeRoomCode } from './game/Multiplayer.js';
+import { Records, aidCode } from './game/Records.js';
 
 const canvas = document.getElementById('viewport');
 const hudRoot = document.getElementById('hud');
@@ -16,10 +20,18 @@ const IS_TOUCH = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPo
 document.documentElement.classList.toggle('is-touch', IS_TOUCH);
 
 const menu = new Menu(overlay, { touch: IS_TOUCH, cars: availableCars() });
+const lobby = new Lobby(overlay, { cars: availableCars() });
+const records = new Records();
 let game = null;
 let hud = null;
 let touch = null;
 let paused = false;
+
+/** The room, while there is one. Null the rest of the time. */
+let net = null;
+let roster = [];
+let lastSelection = null;
+let tags = null;
 
 /* ------------------------------------------------------------------ boot -- */
 
@@ -35,7 +47,7 @@ function fail(message, detail) {
 if (!supportsWebGL2()) {
   fail('APEX needs WebGL2. Try a current version of Chrome, Edge, Firefox or Safari.');
 } else {
-  menu.showStart(start);
+  menu.showStart(start, { records, onMultiplayer: openLobby });
 }
 
 // Installable, and playable offline once everything has been fetched once.
@@ -48,9 +60,150 @@ if (import.meta.env.PROD && !globalThis.APEX_ASSETS && 'serviceWorker' in naviga
   });
 }
 
+/* ------------------------------------------------------------ the room -- */
+
+/**
+ * Opens the multiplayer flow: name yourself, then host or join.
+ *
+ * Everything about a room is deliberately reversible. Leaving one drops the
+ * connections and puts the ordinary start screen back; nothing is stored
+ * anywhere but in this tab.
+ */
+function openLobby() {
+  lobby.showEntry({
+    name: records.driver,
+    onBack: () => {
+      lobby.clear();
+      menu.showStart(start, { records, onMultiplayer: openLobby });
+    },
+    onHost: (name) => enterRoom(name, makeRoomCode()),
+    onJoin: (name, code) => enterRoom(name, code),
+  });
+}
+
+function enterRoom(name, code) {
+  records.driver = name;
+  let carId = lastSelection?.carId ?? availableCars()[0].id;
+
+  net = new Multiplayer({
+    code,
+    identity: () => ({ name: records.driver, carId }),
+    onRoster: (rows) => {
+      roster = rows;
+      lobby.update({ roster: rows, isHost: net.isHost, session: net.session });
+    },
+    onSession: () => lobby.update({ roster, isHost: net.isHost, session: net.session }),
+    onGo: (at, hold) => beginRace(at, hold),
+    onRecords: (circuit, rows) => {
+      // A friend's board arrives when they join, and is kept: the point of a
+      // record is that it stands there afterwards with their name on it.
+      if (records.merge(circuit, rows)) {
+        lobby.update({ roster, isHost: net.isHost, session: net.session });
+      }
+    },
+  });
+
+  // The room is drawn first and connected second, so that a network which
+  // cannot reach the relays leaves the player looking at a room with a
+  // message in it rather than at nothing at all.
+  if (net.isHost && !net.session) {
+    net.setSession({
+      circuitId: lastSelection?.circuitId ?? 'apex',
+      weather: lastSelection?.weather ?? 'clear',
+      laps: 5,
+      quality: lastSelection?.quality,
+    });
+  }
+
+  lobby.showRoom({
+    code,
+    roster: net.roster(),
+    isHost: net.isHost,
+    session: net.session,
+    carId,
+    onCar: (id) => {
+      carId = id;
+      net.refreshIdentity();
+    },
+    onSession: (patch) => net.setSession({ ...net.session, ...patch }),
+    onStart: () => net.start(),
+    onLeave: leaveRoom,
+  });
+
+  try {
+    net.join();
+  } catch (err) {
+    console.warn('Could not reach the matchmaking relays:', err);
+    lobby.setStatus(
+      'Could not reach the network. Some office and school networks block it; ' +
+        'the room stays open in case it comes back.',
+    );
+  }
+
+  // The board for whatever circuit we are on goes out once, so everybody's
+  // records are on everybody's screen.
+  const shareBoard = () => {
+    const circuit = net.session?.circuitId;
+    if (circuit) net.shareRecords(circuit, records.mine(circuit, records.driver));
+  };
+  shareBoard();
+  net.onPeerJoined = shareBoard;
+
+  // Ping figures move on their own; nothing else in the room does.
+  clearInterval(lobby.timer);
+  lobby.timer = setInterval(() => {
+    if (net) lobby.update({ roster: net.roster(), isHost: net.isHost, session: net.session });
+  }, 1500);
+}
+
+function leaveRoom() {
+  clearInterval(lobby.timer);
+  net?.leave();
+  net = null;
+  roster = [];
+  lobby.clear();
+  menu.showStart(start, { records, onMultiplayer: openLobby });
+}
+
+/** The host dropped the lights: load the session, then run it in step. */
+async function beginRace(at, hold) {
+  const session = net?.session;
+  if (!session) return;
+  const me = net.roster().find((r) => r.self);
+  const others = net.roster().filter((r) => !r.self);
+
+  await start({
+    carId: me?.carId ?? availableCars()[0].id,
+    circuitId: session.circuitId,
+    weather: session.weather,
+    quality: session.quality ?? lastSelection?.quality ?? 'high',
+    assist: lastSelection?.assist ?? 'high',
+    mode: 'race',
+    laps: session.laps,
+    opponents: 0,
+    steering: lastSelection?.steering,
+    net,
+    remotes: others,
+    slot: me?.slot ?? 0,
+  });
+
+  if (game) {
+    game.raceStart = at;
+    game.raceHold = hold;
+    // A remote car's lap counter comes over the wire, not from a timer that
+    // is watching it — without this the running order would have everyone
+    // still on lap one.
+    net.onLap = (peerId, lap) => {
+      const o = game.opponents.find((car) => car.remote?.id === peerId);
+      if (o) o.timer.lap = lap.n;
+    };
+  }
+}
+
 /* ----------------------------------------------------------------- start -- */
 
 async function start(selection) {
+  lastSelection = selection;
   // Everything that needs a user gesture happens right here, on the tap.
   if (IS_TOUCH) await enterImmersive();
 
@@ -111,6 +264,21 @@ async function start(selection) {
           state,
           game.opponents.map((o) => o.vehicle.position),
         );
+        // Names over the people, so you know whose mirrors you are in.
+        if (tags) {
+          tags.update(
+            game.opponents
+              .filter((o) => o.remote)
+              .map((o) => ({
+                id: o.remote.id,
+                name: o.name,
+                vehicle: o.vehicle,
+                visible: o.remote.visible,
+              })),
+            game.renderer.camera,
+            { width: canvas.clientWidth, height: canvas.clientHeight },
+          );
+        }
       },
     });
 
@@ -130,9 +298,34 @@ async function start(selection) {
       game.setTouch(touch);
     }
 
+    // Every clean lap goes on the board, under the name the driver gave, with
+    // the aids they used written next to it.
+    game.onLapDone = (lap) => {
+      if (!lap.valid) return;
+      const filed = records.submit({
+        circuit: selection.circuitId,
+        car: selection.carId,
+        weather: selection.weather,
+        driver: records.driver || 'Driver',
+        aids: aidCode({
+          assist: selection.assist,
+          stability: game.player.assists.stability,
+          abs: game.player.assists.abs,
+        }),
+        lap: lap.time,
+        sectors: lap.sectors,
+      });
+      // A new personal best is worth the room knowing about immediately.
+      if (filed.improved && net) {
+        net.shareRecords(selection.circuitId, records.mine(selection.circuitId, records.driver));
+      }
+    };
+
     await game.load(selection);
 
     hud = new HUD(hudRoot, game.track);
+    tags?.dispose();
+    tags = selection.remotes?.length ? new NameTags(hudRoot) : null;
     hudRoot.classList.remove('hidden');
     touch?.setVisible(true);
     document.body.classList.add('playing');
@@ -198,7 +391,28 @@ function pause() {
           hudRoot.classList.add('hidden');
           document.body.classList.remove('playing');
           paused = false;
-          menu.showStart(start);
+          tags?.dispose();
+          tags = null;
+          // Back to the room if there still is one, so a race can be run
+          // again without everybody rejoining.
+          if (net) {
+            lobby.showRoom({
+              code: net.code,
+              roster: net.roster(),
+              isHost: net.isHost,
+              session: net.session,
+              carId: lastSelection?.carId,
+              onCar: (id) => {
+                lastSelection = { ...lastSelection, carId: id };
+                net.refreshIdentity();
+              },
+              onSession: (patch) => net.setSession({ ...net.session, ...patch }),
+              onStart: () => net.start(),
+              onLeave: leaveRoom,
+            });
+          } else {
+            menu.showStart(start, { records, onMultiplayer: openLobby });
+          }
         },
       });
     },

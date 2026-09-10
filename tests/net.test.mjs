@@ -125,8 +125,23 @@ const snapshotAt = (seq, t) => {
   };
 };
 
-/** Angle round the circle, unwrapped, as a measure of progress. */
-const arc = (p) => Math.atan2(p.x, RADIUS - p.z);
+/**
+ * Angle round the circle, as a measure of progress along the road.
+ *
+ * Unwrapped against the previous reading: atan2 jumps by a whole turn as the
+ * car passes the far side, and taking that at face value would report the
+ * circumference as a teleport.
+ */
+let arcLast = null;
+const arc = (p) => {
+  let a = Math.atan2(p.x, RADIUS - p.z);
+  if (arcLast !== null) {
+    while (a - arcLast > Math.PI) a -= Math.PI * 2;
+    while (a - arcLast < -Math.PI) a += Math.PI * 2;
+  }
+  arcLast = a;
+  return a;
+};
 
 const out = {
   position: new THREE.Vector3(),
@@ -140,11 +155,12 @@ const out = {
  *
  * @param {object} link  loss 0..1; jitter ± milliseconds; reorder 0..1
  */
-function drive({ loss = 0, jitter = 0, reorder = 0, seconds = 12, seed = 5 } = {}) {
+function drive({ loss = 0, jitter = 0, reorder = 0, seconds = 40, seed = 5 } = {}) {
   let s = seed;
   const rand = () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
 
   const interp = new Interpolator();
+  arcLast = null;
   const inbox = [];
   let worstError = 0;
   let backwards = 0;
@@ -183,7 +199,7 @@ function drive({ loss = 0, jitter = 0, reorder = 0, seconds = 12, seed = 5 } = {
     // Where the car really was at the moment being drawn. The first second is
     // not counted: the buffer is still filling and the delay still settling,
     // and every connection is allowed to start somewhere.
-    const shown = out.position.x * 0 + arc(out.position);
+    const shown = arc(out.position);
     if (now > 1500) {
       worstError = Math.max(
         worstError,
@@ -207,7 +223,7 @@ function drive({ loss = 0, jitter = 0, reorder = 0, seconds = 12, seed = 5 } = {
 
 console.log('\n=== a clean connection ===');
 let r = drive({ jitter: 0 });
-check('the car is drawn every frame', r.drawn > 700 - 40, `${r.drawn} frames`);
+check('the car is drawn every frame', r.drawn > 40 * 60 - 40, `${r.drawn} frames`);
 check('it never goes backwards', r.backwards === 0);
 check('it never jumps', r.gaps === 0);
 check('it is where it should be', r.worstError < 0.02, `worst ${(r.worstError * 1000).toFixed(1)} mm off the true line`);

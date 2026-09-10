@@ -5,6 +5,7 @@ import { ASSIST_LEVELS } from '../game/Assist.js';
 import { WEATHERS } from '../game/Weather.js';
 import { RACE_LENGTHS } from '../game/RaceControl.js';
 import { QUALITY } from '../render/Renderer.js';
+import { leaderboard } from './Leaderboard.js';
 import { formatLap } from '../game/Timing.js';
 
 /**
@@ -47,7 +48,13 @@ export class Menu {
   /* ------------------------------------------------------------- main menu */
 
   /** @param {(selection: object) => void} onStart */
-  showStart(onStart) {
+  /**
+   * @param {(selection: object) => void} onStart
+   * @param {object} [extras]
+   * @param {import('../game/Records.js').Records} [extras.records]
+   * @param {() => void} [extras.onMultiplayer]
+   */
+  showStart(onStart, { records = null, onMultiplayer = null } = {}) {
     this.clear();
     const screen = el('div', 'screen start');
 
@@ -94,8 +101,10 @@ export class Menu {
         <section class="field" data-field="quality"><label>Graphics</label><div class="choices seg"></div></section>
         <section class="field" data-field="steering" hidden><label>Steering</label><div class="choices seg"></div></section>
       </div>
+      <section class="field" data-field="board"></section>
       <div class="actions">
         <button class="go" data-start><span>Go racing</span><i>›</i></button>
+        <button class="go secondary" data-friends hidden><span>Race friends</span><i>›</i></button>
         <span class="hint" data-hint>Keyboard or gamepad · W A S D to drive</span>
       </div>`;
 
@@ -122,6 +131,7 @@ export class Menu {
     })), (v) => {
       this.selection.circuitId = v;
       showGhost(v);
+      this.onCircuitChange?.();
     }, this.selection.circuitId);
     showGhost(this.selection.circuitId);
 
@@ -179,6 +189,30 @@ export class Menu {
     picker.querySelector('[data-start]').addEventListener('click', () => {
       onStart({ ...this.selection });
     });
+
+    const friends = picker.querySelector('[data-friends]');
+    if (onMultiplayer) {
+      friends.hidden = false;
+      friends.addEventListener('click', onMultiplayer);
+    }
+
+    // The board follows whichever circuit is selected, so picking a track
+    // shows you what there is to beat on it.
+    if (records) {
+      const board = picker.querySelector('[data-field="board"]');
+      const drawBoard = () => {
+        board.replaceChildren(
+          leaderboard({
+            rows: records.table(this.selection.circuitId),
+            cars: this.cars,
+            driver: records.driver,
+            title: 'Lap records',
+          }),
+        );
+      };
+      drawBoard();
+      this.onCircuitChange = drawBoard;
+    }
   }
 
   /**

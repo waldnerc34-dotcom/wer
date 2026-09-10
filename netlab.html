@@ -1,0 +1,179 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>APEX — net bench</title>
+<body>
+<pre id="out">idle</pre>
+<script type="module">
+/*
+ * A bench for the wire, over a real WebRTC connection.
+ *
+ * The relays Trystero uses to introduce two peers are not reachable from
+ * every network, and are not the interesting part anyway — once two machines
+ * have found each other, everything that decides whether a race feels smooth
+ * happens on the data channel. So this page is half of a connection whose
+ * handshake is carried by the test harness instead of a relay, and the
+ * channel it opens is configured exactly as the game's is: unordered, never
+ * retransmitted.
+ */
+import { KIND, SNAPSHOT_BYTES, readPing, readState, writePing, writeState } from './src/net/Snapshot.js';
+import { Interpolator } from './src/net/Remote.js';
+import { Sync } from './src/net/Sync.js';
+import * as THREE from 'three';
+
+const RT = 'apex-rt';
+const epoch = performance.now();
+const now = () => performance.now() - epoch;
+
+const pc = new RTCPeerConnection({ iceServers: [] });
+let channel = null;
+
+const sync = new Sync();
+const interp = new Interpolator();
+const out = {
+  position: new THREE.Vector3(),
+  quaternion: new THREE.Quaternion(),
+  velocity: new THREE.Vector3(),
+  state: null,
+};
+
+const stats = {
+  sent: 0,
+  received: 0,
+  pings: 0,
+  backwards: 0,
+  jumps: 0,
+  worstStep: 0,
+  drawn: 0,
+  open: false,
+};
+window.__stats = stats;
+window.__sync = sync;
+window.__interp = interp;
+
+const probe = new DataView(new ArrayBuffer(24));
+const outView = new DataView(new ArrayBuffer(SNAPSHOT_BYTES));
+const pending = new Map();
+let pingId = 0;
+let seq = 0;
+
+function attach(ch) {
+  channel = ch;
+  ch.binaryType = 'arraybuffer';
+  ch.addEventListener('open', () => {
+    stats.open = true;
+    document.getElementById('out').textContent = 'open';
+  });
+  ch.addEventListener('message', (e) => receive(e.data));
+}
+
+function send(buffer) {
+  if (channel?.readyState === 'open') channel.send(buffer);
+}
+
+function receive(data) {
+  const view = new DataView(data);
+  const kind = view.getUint8(0);
+
+  if (kind === KIND.PING) {
+    const { id, t } = readPing(view);
+    const n = writePing(probe, KIND.PONG, id, t);
+    probe.setFloat64(n, now());
+    send(probe.buffer.slice(0, n + 8));
+    return;
+  }
+  if (kind === KIND.PONG) {
+    const { id, t } = readPing(view);
+    if (!pending.has(id)) return;
+    pending.delete(id);
+    const local = now();
+    const theirs = view.getFloat64(13);
+    const rtt = local - t;
+    sync.add(local - rtt / 2 - theirs, rtt);
+    stats.pings++;
+    return;
+  }
+  if (kind === KIND.STATE) {
+    stats.received++;
+    if (!sync.settled) return;
+    interp.push(readState(view, 0), sync.offset, now());
+  }
+}
+
+window.__ping = () => {
+  const id = ++pingId;
+  pending.set(id, true);
+  const n = writePing(probe, KIND.PING, id, now());
+  send(probe.buffer.slice(0, n));
+};
+
+// A car on a 200 m radius corner at 50 m/s — a curve, so that interpolating
+// between snapshots is actually doing something.
+const RADIUS = 200;
+const SPEED = 50;
+window.__sendState = () => {
+  const t = now() / 1000;
+  const a = (t * SPEED) / RADIUS;
+  writeState(outView, 0, {
+    seq: ++seq,
+    t: Math.round(now()),
+    x: RADIUS * Math.sin(a),
+    y: 0,
+    z: RADIUS * (1 - Math.cos(a)),
+    qx: 0, qy: Math.sin(-a / 2), qz: 0, qw: Math.cos(-a / 2),
+    vx: SPEED * Math.cos(a), vy: 0, vz: SPEED * Math.sin(a),
+    steer: 0.04, omega: 140, throttle: 1, brake: 0,
+    slip: 2, surface: 0, grounded: true,
+  });
+  send(outView.buffer.slice(0));
+  stats.sent++;
+};
+
+let lastArc = null;
+window.__draw = () => {
+  if (!interp.sample(now(), out)) return;
+  stats.drawn++;
+  // Unwrapped: atan2 jumps by a full turn as the car passes the far side of
+  // the circle, and an unwrapped angle would report that as the car teleporting
+  // 1 257 m — which is the circumference, not a fault.
+  let a = Math.atan2(out.position.x, RADIUS - out.position.z);
+  if (lastArc !== null) {
+    while (a - lastArc > Math.PI) a -= Math.PI * 2;
+    while (a - lastArc < -Math.PI) a += Math.PI * 2;
+    const step = a - lastArc;
+    if (step < -1e-7) stats.backwards++;
+    const metres = Math.abs(step) * RADIUS;
+    stats.worstStep = Math.max(stats.worstStep, metres);
+    if (metres > (SPEED / 60) * 4) stats.jumps++;
+  }
+  lastArc = a;
+};
+
+/* ---- the handshake, carried by the harness ------------------------------ */
+
+pc.addEventListener('datachannel', (e) => {
+  if (e.channel.label === RT) attach(e.channel);
+});
+pc.addEventListener('icecandidate', (e) => {
+  if (e.candidate) window.onLocalCandidate?.(JSON.stringify(e.candidate));
+});
+
+window.__offer = async () => {
+  attach(pc.createDataChannel(RT, { ordered: false, maxRetransmits: 0 }));
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  return JSON.stringify(offer);
+};
+window.__answer = async (offerJson) => {
+  await pc.setRemoteDescription(JSON.parse(offerJson));
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  return JSON.stringify(answer);
+};
+window.__accept = async (answerJson) => pc.setRemoteDescription(JSON.parse(answerJson));
+window.__candidate = async (json) => {
+  try {
+    await pc.addIceCandidate(JSON.parse(json));
+  } catch { /* a candidate that arrives late is not fatal */ }
+};
+window.__ready = true;
+</script>

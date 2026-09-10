@@ -72,6 +72,26 @@ export class RaceControl {
     return SETTLE + COUNT_FROM + this.hold;
   }
 
+  /**
+   * Runs the procedure from a clock somebody else is keeping.
+   *
+   * In a race between people every screen has to drop the lights at the same
+   * instant, and the only way to be sure of that is for one machine to say
+   * when and everyone else to work out what that means on their own clock.
+   * The whole procedure is a pure function of the time since the session
+   * began and the length of the hold, so setting both is enough to put every
+   * machine on the same countdown — including the pause before lights out,
+   * which is random and would otherwise differ on each one.
+   *
+   * @param {number} seconds since the session began, on the host's clock
+   * @param {number} [hold] the host's pause between the last lamp and go
+   */
+  syncTo(seconds, hold) {
+    this.time = seconds;
+    if (Number.isFinite(hold)) this.hold = hold;
+    this.update(0);
+  }
+
   update(dt) {
     this.time += dt;
     if (this.phase === 'finished') return;
