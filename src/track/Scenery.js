@@ -26,14 +26,28 @@ export class Scenery {
    * @param {import('../core/Assets.js').Assets} assets
    */
   async build(assets) {
-    // The downloaded tree models are flat-shaded, colour-swatch low-poly
-    // assets — usable as distant silhouettes, but they read as lollipops up
-    // close. The trackside woodland is built instead from crossed cards using
-    // a real photographic canopy, which is how racing games have always drawn
-    // background vegetation.
+    // Trees near the road are real models, and trees far from it are cards.
+    //
+    // It used to be the other way round, on the reasoning that a card carries
+    // a photographed canopy while the low-poly models read as lollipops. That
+    // is true of one tree looked at from a standstill and wrong from a car:
+    // a card has no thickness, so the moment you move past it the thing you
+    // notice is that the wood beside the circuit is a row of stickers. Real
+    // geometry parallaxes, catches the sun on one side, and casts a shadow
+    // with a shape. Six hundred to two and a half thousand vertices each,
+    // instanced, is a cost worth paying for the ones you actually drive past.
+    //
+    // The cards stay for the deep background, where a silhouette is all that
+    // survives anyway and a photograph makes a better one than a model.
     const files = [
-      { path: 'models/scenery/tree3.glb', kind: 'far-tree', weight: 5, scale: [9, 16] },
-      { path: 'models/scenery/tree4.glb', kind: 'far-tree', weight: 5, scale: [8, 15] },
+      // Weighted by what they cost: tree1 is two and a half thousand vertices
+      // against six hundred for tree3, and every one of these is multiplied by
+      // four figures of instances. It earns a place in the mix, not a share
+      // of it.
+      { path: 'models/scenery/tree1.glb', kind: 'tree', weight: 1, scale: [7, 13] },
+      { path: 'models/scenery/tree2.glb', kind: 'tree', weight: 4, scale: [6, 12] },
+      { path: 'models/scenery/tree3.glb', kind: 'tree', weight: 6, scale: [7, 14] },
+      { path: 'models/scenery/tree4.glb', kind: 'tree', weight: 5, scale: [6, 13] },
       { path: 'models/scenery/bush1.glb', kind: 'bush', weight: 3, scale: [0.9, 1.9] },
       { path: 'models/scenery/bush2.glb', kind: 'bush', weight: 2, scale: [1.0, 2.0] },
       { path: 'models/scenery/bush3.glb', kind: 'bush', weight: 2, scale: [0.9, 1.8] },
@@ -82,7 +96,7 @@ export class Scenery {
     out.set('__cards__', []);
 
     const byKind = {
-      'far-tree': entries.filter((e) => e.kind === 'far-tree'),
+      tree: entries.filter((e) => e.kind === 'tree'),
       bush: entries.filter((e) => e.kind === 'bush'),
       rock: entries.filter((e) => e.kind === 'rock'),
     };
@@ -127,11 +141,13 @@ export class Scenery {
           const openness = smoothstep(clamp((ground.edge - 18) / 26, 0, 1));
           if (rand() > 0.55 + openness * 0.45) continue;
 
-          // Card trees make up the woodland; a scattering of the low-poly
-          // models goes in far enough back to read as pure silhouette.
-          const far = ground.edge > 95 && rand() < 0.22;
-          if (far) {
-            const entry = pick('far-tree');
+          // Real geometry for everything you drive past; cards only once the
+          // tree is far enough back to be a silhouette and nothing else. The
+          // crossover moves in as the budget tightens, because on a phone the
+          // vertices matter more than the parallax does.
+          const solid = ground.edge < lerp(22, 52, clamp(this.density, 0.3, 1.25) / 1.25);
+          if (solid) {
+            const entry = pick('tree');
             out.get(entry.path).push({
               x,
               y: ground.y,

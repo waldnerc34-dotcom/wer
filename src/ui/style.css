@@ -1044,27 +1044,11 @@ html.is-touch, html.is-touch body {
    quietly, because a picture that quietly got worse is worse than one that
    says why. */
 /*
- * Out of the flow. In the flow it set the width of the panel it lives in, and
- * the panel is the corner map — so a six-word diagnostic dragged the map most
- * of the way across the screen. A note about the picture being degraded is
- * not allowed to degrade the picture.
+ * What the renderer gave up to hold the frame rate now rides on the frame
+ * rate line itself. As its own element it either set the width of the corner
+ * map — dragging it across the screen — or, pulled out of the flow to stop
+ * that, sat on top of the readout it belongs with.
  */
-.detail {
-  position: absolute;
-  right: 10px;
-  bottom: 4px;
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.45;
-  text-align: right;
-  white-space: nowrap;
-  pointer-events: none;
-}
-
-.map-panel {
-  position: relative;
-}
 
 /*
  * `display: grid` beats the user-agent rule behind the `hidden` attribute, so

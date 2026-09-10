@@ -207,21 +207,23 @@ console.log('\n=== putting the pixels back ===');
 // Mirrors Renderer#applySharpening: how far the drawn frame is stretched to
 // reach the glass, which on a phone is much more than the preset suggests.
 const sharpness = (drawnRatio, devicePixelRatio) =>
-  Math.min(0.9, Math.max(0, (devicePixelRatio / drawnRatio - 1) * 0.62));
+  Math.min(0.5, Math.max(0, (devicePixelRatio / drawnRatio - 1) * 0.34));
 
 check('a frame drawn at the display resolution is left alone', sharpness(1, 1) === 0);
 check('a 4K frame resolved down to 1080p is left alone', sharpness(2, 1) === 0);
 check(
   'a 2× preset on a 3× phone is sharpened',
-  sharpness(2, 3) > 0.25,
+  sharpness(2, 3) > 0.12,
   `${sharpness(2, 3).toFixed(2)} at a 1.5× stretch`,
 );
 check(
   'and harder once the scaler has been at it',
-  sharpness(2 * QUALITY.high.minScale, 3) > sharpness(2, 3) + 0.3,
+  sharpness(2 * QUALITY.high.minScale, 3) > sharpness(2, 3),
   `${sharpness(2 * QUALITY.high.minScale, 3).toFixed(2)} at the floor`,
 );
-check('but never far enough to ring', sharpness(0.2, 3) <= 0.9);
+// Past a point more sharpening does not read as sharper, it reads as crunchy
+// — every stair-step the low resolution created, restored at full contrast.
+check('but never hard enough to look crunchy', sharpness(0.2, 3) <= 0.5);
 
 /* --------------------------------------------------- dynamic resolution */
 

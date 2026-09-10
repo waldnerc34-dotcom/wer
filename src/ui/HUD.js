@@ -45,7 +45,6 @@ export class HUD {
       result: root.querySelector('[data-result]'),
       resultRows: root.querySelector('[data-result-rows]'),
       resultNote: root.querySelector('[data-result-note]'),
-      detail: root.querySelector('[data-detail]'),
     };
 
     this.#buildTicks();
@@ -176,7 +175,6 @@ export class HUD {
     // The starter, and the flag.
     this.#callout(state);
     this.#result(state);
-    this.#set('detail', e.detail, state.detail ?? '');
     this.#set('lapTime', e.lapTime, formatLap(state.lapTime));
     this.#set('last', e.lastLap, formatLap(state.lastLap));
     this.#set('best', e.bestLap, formatLap(state.bestLap));
@@ -235,11 +233,20 @@ export class HUD {
 
     // Own up to the resolution: the number of pixels being drawn is not the
     // size of the window, and on Ultra it is deliberately larger.
+    // ...and to whatever it had to give up to draw them, on the same line.
+    // As its own element it sat on top of this one, which is a diagnostic
+    // obscuring the diagnostic it belongs with.
     const r = state.render;
     this.#set(
       'fps',
       e.fps,
-      r ? `${Math.round(state.fps)} fps · ${Math.round(r.x)}×${Math.round(r.y)}` : `${Math.round(state.fps)} fps`,
+      [
+        `${Math.round(state.fps)} fps`,
+        r ? `${Math.round(r.x)}×${Math.round(r.y)}` : null,
+        state.detail,
+      ]
+        .filter(Boolean)
+        .join(' · '),
     );
 
     // The minimap is a full canvas repaint. Twenty times a second is more
@@ -356,7 +363,6 @@ const TEMPLATE = /* html */ `
   <div class="panel map-panel">
     <canvas data-map class="map"></canvas>
     <div data-fps class="fps"></div>
-    <div data-detail class="detail"></div>
   </div>
 </div>
 

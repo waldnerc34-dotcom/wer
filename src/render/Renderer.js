@@ -23,6 +23,7 @@ import { AtmosphereEffect } from './Atmosphere.js';
 import { ReflectionsEffect } from './Reflections.js';
 import { ResolutionScaler } from './Resolution.js';
 import { SharpenEffect } from './Sharpen.js';
+import { HighlightGuard } from './Highlights.js';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { GroundedSkybox } from 'three/examples/jsm/objects/GroundedSkybox.js';
 
@@ -657,7 +658,12 @@ export class Renderer {
     this.grain.blendMode.opacity.value = 0.028;
 
     const effects = [];
-    // Reflections first: they are part of the image, so everything after —
+    // Before anything else, a ceiling on the radiance. The captured sun is
+    // hundreds of times the tone mapper's white point and that is what was
+    // turning it into a black disc; see Highlights.js.
+    this.highlights = new HighlightGuard(32);
+    effects.push(this.highlights);
+    // Reflections next: they are part of the image, so everything after —
     // the bloom, the blur, the drops on the glass — sees them.
     if (this.reflections) effects.push(this.reflections);
     // Haze sits on top of the scene and under everything the camera does to
@@ -695,7 +701,12 @@ export class Renderer {
   #applySharpening() {
     if (!this.sharpen) return;
     const stretch = (devicePixelRatio || 1) / Math.max(0.1, this.renderer.getPixelRatio());
-    const strength = clamp((stretch - 1) * 0.62, 0, 0.9);
+    // Gentler than it was. Sharpening puts edges back, but it puts *every*
+    // edge back, including the stair-stepped ones the low resolution created
+    // — so past a point more of it does not read as sharper, it reads as
+    // crunchy, which is the worst of both. Half the old slope and a much
+    // lower ceiling.
+    const strength = clamp((stretch - 1) * 0.34, 0, 0.5);
     this.sharpen.strength = strength;
     if (this.sharpenPass) this.sharpenPass.enabled = strength > 0.02;
   }
