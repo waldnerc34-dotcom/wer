@@ -9,7 +9,7 @@
  *   node tests/render.test.mjs
  */
 
-import { QUALITY } from '../src/render/Renderer.js';
+import { QUALITY, fitToDevice } from '../src/render/Renderer.js';
 import { ResolutionScaler } from '../src/render/Resolution.js';
 
 let failures = 0;
@@ -143,6 +143,72 @@ for (const [name, w, h, dpr] of [
 
 check('Quality stays at the display resolution', width(nativeRatio(QUALITY.high, 1), 1920) === 1920);
 check('Quality never supersamples', !QUALITY.high.superSampleTo);
+
+/* ------------------------------------------------------ what a phone gets */
+
+console.log('\n=== the same preset on a handset ===');
+
+const DESKTOP = { coarsePointer: false, touchPoints: 0 };
+const PHONE = { coarsePointer: true, touchPoints: 5 };
+
+check(
+  'a desktop is handed the preset it asked for',
+  JSON.stringify(fitToDevice(QUALITY.ultra, DESKTOP)) === JSON.stringify({ ...QUALITY.ultra }),
+);
+
+for (const tier of TIERS) {
+  const fitted = fitToDevice(QUALITY[tier], PHONE);
+  // Four cascades of 4096 shadow maps is four passes over the circuit before
+  // a lit pixel is drawn, and the reflections want a fifth for the normals.
+  // A handset will run that at fifteen frames a second.
+  check(
+    `${tier} on a phone asks for a shadow rig a phone can run`,
+    fitted.cascades <= 2 && fitted.shadowMapSize <= 2048 && fitted.shadowDistance <= 420,
+    `${fitted.cascades} × ${fitted.shadowMapSize} over ${fitted.shadowDistance} m`,
+  );
+  check(`${tier} on a phone drops the second geometry pass`, fitted.reflections === false);
+  check(
+    `${tier} on a phone never supersamples`,
+    !fitted.superSampleTo && fitted.pixelRatio <= 2 && fitted.maxPixels <= 3.6e6,
+  );
+  check(`${tier} on a phone is anti-aliased without a second pass`, !fitted.smaa && fitted.msaa > 0);
+}
+
+// And the point of all that: Quality on a phone still has to be a step up
+// from Mobile on a phone, or the setting is a lie.
+const phoneMobile = fitToDevice(QUALITY.mobile, PHONE);
+const phoneQuality = fitToDevice(QUALITY.high, PHONE);
+check(
+  'Quality on a phone is still a step above Mobile on a phone',
+  phoneQuality.ao && !phoneMobile.ao &&
+    phoneQuality.sceneryDensity > phoneMobile.sceneryDensity &&
+    (phoneQuality.renderScale ?? 1) > (phoneMobile.renderScale ?? 1) &&
+    phoneQuality.shadowDistance > phoneMobile.shadowDistance,
+  `AO, ${phoneQuality.sceneryDensity} scenery, shadows to ${phoneQuality.shadowDistance} m`,
+);
+
+/* --------------------------------------------------------- sharpening back */
+
+console.log('\n=== putting the pixels back ===');
+
+// Mirrors Renderer#applySharpening: how far the drawn frame is stretched to
+// reach the glass, which on a phone is much more than the preset suggests.
+const sharpness = (drawnRatio, devicePixelRatio) =>
+  Math.min(0.9, Math.max(0, (devicePixelRatio / drawnRatio - 1) * 0.62));
+
+check('a frame drawn at the display resolution is left alone', sharpness(1, 1) === 0);
+check('a 4K frame resolved down to 1080p is left alone', sharpness(2, 1) === 0);
+check(
+  'a 2× preset on a 3× phone is sharpened',
+  sharpness(2, 3) > 0.25,
+  `${sharpness(2, 3).toFixed(2)} at a 1.5× stretch`,
+);
+check(
+  'and harder once the scaler has been at it',
+  sharpness(2 * QUALITY.high.minScale, 3) > sharpness(2, 3) + 0.3,
+  `${sharpness(2 * QUALITY.high.minScale, 3).toFixed(2)} at the floor`,
+);
+check('but never far enough to ring', sharpness(0.2, 3) <= 0.9);
 
 /* --------------------------------------------------- dynamic resolution */
 

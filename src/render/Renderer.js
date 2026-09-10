@@ -22,6 +22,7 @@ import { RainDropsEffect, RainDropsOverlay, RainOnLens } from './RainDrops.js';
 import { AtmosphereEffect } from './Atmosphere.js';
 import { ReflectionsEffect } from './Reflections.js';
 import { ResolutionScaler } from './Resolution.js';
+import { SharpenEffect } from './Sharpen.js';
 import { CSM } from 'three/examples/jsm/csm/CSM.js';
 import { GroundedSkybox } from 'three/examples/jsm/objects/GroundedSkybox.js';
 
@@ -211,6 +212,80 @@ export const QUALITY = {
 };
 
 /**
+ * What gets given up, and in what order, when there are no pixels left to
+ * give. Most expensive first; the ones that would actually be missed go last.
+ * Every entry is switchable at runtime without recompiling a shader, which is
+ * the whole point — a stutter to avoid a stutter is not a fix.
+ */
+const SHED = ['reflections', 'ao', 'smaa', 'shafts', 'motionBlur', 'shadowRange'];
+
+/**
+ * The preset the player picked, cut down to what the machine can actually be
+ * asked for.
+ *
+ * A quality preset describes a *look*. It is not a promise about hardware,
+ * and on a phone the difference is stark: "Quality" asks for four cascades of
+ * 4096-pixel shadow maps — four full passes over the circuit before a single
+ * lit pixel is drawn — plus a fifth pass for the reflection normals, ambient
+ * occlusion, and a screen-space march per pixel. A handset will run that. It
+ * will run it at fifteen frames a second, dynamic resolution will chase the
+ * frame rate down to the floor, and what you get is a slideshow *and* a
+ * smeared one, because pixels are the only thing it knows how to give up.
+ *
+ * So the structurally impossible parts are clamped up front, and the look is
+ * kept: tone mapping, bloom, the haze, ambient occlusion, multisampling, and
+ * more of the resolution than the phone tier asks for — which is what makes
+ * Quality on a phone a real step above Mobile rather than the same picture
+ * with a longer loading screen.
+ *
+ * @param {object} preset one of QUALITY
+ * @param {object} [probe] overrides, so this is testable away from a browser
+ */
+export function fitToDevice(preset, probe = {}) {
+  const {
+    coarsePointer = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches,
+    touchPoints = (typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0,
+  } = probe;
+
+  // A touchscreen laptop reports a *fine* primary pointer, so this is
+  // handhelds rather than "anything you can touch".
+  const handheld = Boolean(coarsePointer) && touchPoints > 0;
+  const fitted = { ...preset };
+  if (!handheld) return fitted;
+
+  fitted.handheld = true;
+  // Shadows are the big one: cost goes with the number of cascades, because
+  // each is another pass over the geometry.
+  fitted.shadowMapSize = Math.min(fitted.shadowMapSize ?? 2048, 2048);
+  fitted.cascades = Math.min(fitted.cascades ?? 2, 2);
+  fitted.shadowDistance = Math.min(fitted.shadowDistance ?? 300, 420);
+  // And the second geometry pass behind the reflections is the other one.
+  fitted.reflections = false;
+  fitted.motionBlur = false;
+  // Multisampling instead of SMAA: on a tiler the samples never leave on-chip
+  // memory, while SMAA is another full-screen pass.
+  if (fitted.smaa) {
+    fitted.smaa = false;
+    fitted.msaa = fitted.msaa ?? 2;
+  }
+  fitted.aoQuality = 'low';
+  fitted.anisotropy = Math.min(fitted.anisotropy ?? 8, 8);
+  if (fitted.atmosphere) {
+    fitted.atmosphere = { ...fitted.atmosphere, samples: Math.min(fitted.atmosphere.samples ?? 12, 12) };
+  }
+  // Nothing supersamples on a phone, and nothing draws more than this many
+  // pixels however large the tablet.
+  delete fitted.superSampleTo;
+  fitted.maxRenderScale = 1;
+  fitted.pixelRatio = Math.min(fitted.pixelRatio ?? 2, 2);
+  fitted.maxPixels = Math.min(fitted.maxPixels ?? Infinity, 3.6e6);
+  fitted.sceneryDensity = Math.min(fitted.sceneryDensity ?? 1, 1);
+  fitted.minScale = Math.min(fitted.minScale ?? 0.6, 0.55);
+  fitted.scalerWindow = Math.min(fitted.scalerWindow ?? 30, 20);
+  return fitted;
+}
+
+/**
  * Speed-driven radial blur.
  *
  * A full velocity-buffer motion blur is overkill for a chase camera that is
@@ -269,8 +344,14 @@ class SpeedBlurEffect extends Effect {
 export class Renderer {
   constructor(canvas, quality = 'high') {
     this.canvas = canvas;
-    this.settings = { ...QUALITY[quality] };
+    // What was asked for, cut to what this machine can be asked for.
+    this.settings = fitToDevice(QUALITY[quality] ?? QUALITY.high);
     this.qualityName = quality;
+    /** How many rungs of SHED are still in hand; see #budget. */
+    this.detail = SHED.length;
+    this.shed = new Set();
+    this.pressure = 0;
+    this.slack = 0;
 
     this.usePost = this.settings.post !== false;
 
@@ -390,6 +471,7 @@ export class Renderer {
     const ratio = clamp(wanted, 0.1, ceiling);
     if (Math.abs(ratio - this.renderer.getPixelRatio()) < 1e-3) return false;
     this.renderer.setPixelRatio(ratio);
+    this.#applySharpening();
     return true;
   }
 
@@ -559,8 +641,111 @@ export class Renderer {
     this.composer.addPass(new EffectPass(this.camera, ...effects));
 
     if (s.smaa) {
-      this.composer.addPass(new EffectPass(this.camera, new SMAAEffect()));
+      this.smaaPass = new EffectPass(this.camera, new SMAAEffect());
+      this.composer.addPass(this.smaaPass);
     }
+
+    // Last, and on its own, because it needs the finished image: see
+    // Sharpen.js. Switched off entirely whenever the frame is being drawn at
+    // the display's own resolution, where there is nothing to put back.
+    this.sharpen = new SharpenEffect();
+    this.sharpenPass = new EffectPass(this.camera, this.sharpen);
+    this.composer.addPass(this.sharpenPass);
+    this.#applySharpening();
+  }
+
+  /**
+   * How hard to sharpen, from how far the frame is being stretched.
+   *
+   * The number that matters is drawn pixels against *screen* pixels, not
+   * against the preset — on a 3× phone a preset capped at 2× is already being
+   * stretched by half before the scaler has done anything at all, which is
+   * most of why the same settings look so much softer on a handset than on a
+   * monitor.
+   */
+  #applySharpening() {
+    if (!this.sharpen) return;
+    const stretch = (devicePixelRatio || 1) / Math.max(0.1, this.renderer.getPixelRatio());
+    const strength = clamp((stretch - 1) * 0.62, 0, 0.9);
+    this.sharpen.strength = strength;
+    if (this.sharpenPass) this.sharpenPass.enabled = strength > 0.02;
+  }
+
+  /* ------------------------------------------------------------- the budget */
+
+  /**
+   * What to do when the resolution scaler has nothing left to sell.
+   *
+   * Trading pixels for frame rate is the right first move and the wrong only
+   * move. Once the scale is on its floor and the frames are still late, every
+   * further tenth of a second of lateness is paid for in blur that buys
+   * nothing — which is exactly the state a phone lands in on a desktop preset,
+   * and exactly what it looks like: soft *and* slow.
+   *
+   * So at the floor the renderer starts giving up features instead, in the
+   * order of SHED, and takes them back when there is room. Hysteresis both
+   * ways: two bad windows before anything goes, four good ones before
+   * anything returns, because a preset that flickers between two looks is
+   * worse than either of them.
+   */
+  #budget() {
+    const s = this.scaler;
+    if (!s.enabled) return;
+
+    if (s.verdict < 0 && s.scale <= s.min + 1e-3) {
+      this.slack = 0;
+      if (++this.pressure >= 2 && this.detail > 0) {
+        this.pressure = 0;
+        this.#setDetail(this.detail - 1);
+      }
+    } else if (s.verdict > 0 && s.scale >= s.max - 1e-3) {
+      this.pressure = 0;
+      if (++this.slack >= 4 && this.detail < SHED.length) {
+        this.slack = 0;
+        this.#setDetail(this.detail + 1);
+      }
+    } else {
+      this.pressure = 0;
+      this.slack = 0;
+    }
+  }
+
+  /** @param {number} detail how many rungs of SHED are still in hand */
+  #setDetail(detail) {
+    this.detail = clamp(detail, 0, SHED.length);
+    const given = SHED.length - this.detail;
+    this.shed = new Set(SHED.slice(0, given));
+
+    // Everything here is a uniform or a pass switch, never a shader change:
+    // the effects themselves already leave early when their strength is zero,
+    // which is what makes turning one off free rather than a recompile.
+    if (this.normalPass) this.normalPass.enabled = !this.shed.has('reflections');
+    if (this.reflections && this.shed.has('reflections')) this.reflections.setStrength(0);
+    if (this.ao) this.ao.enabled = !this.shed.has('ao');
+    if (this.smaaPass) this.smaaPass.enabled = !this.shed.has('smaa');
+    if (this.atmosphere) {
+      this.atmosphere.uniforms.get('uShafts').value = this.shed.has('shafts') ? 0 : this.shaftStrength ?? 0.35;
+    }
+    if (this.speedBlur && this.shed.has('motionBlur')) this.speedBlur.strength = 0;
+    if (this.csm) {
+      // Not fewer cascades — that is a rebuild — but a shorter reach, so each
+      // cascade's frustum holds less of the circuit and draws less of it.
+      const far = this.settings.shadowDistance * (this.shed.has('shadowRange') ? 0.45 : 1);
+      if (Math.abs(this.csm.maxFar - far) > 1) {
+        this.csm.maxFar = far;
+        this.csm.updateFrustums();
+      }
+    }
+    console.warn(
+      given
+        ? `APEX: holding the frame rate by giving up ${[...this.shed].join(', ')}.`
+        : 'APEX: full detail restored.',
+    );
+  }
+
+  /** What the renderer had to give up to hold the frame rate, for the HUD. */
+  get detailNote() {
+    return this.shed.size ? [...this.shed].join(' · ') : null;
   }
 
   /* ---------------------------------------------------------------- runtime */
@@ -625,6 +810,10 @@ export class Renderer {
     if (this.atmosphere) {
       this.scene.fog = null;
       this.atmosphere.setFog(color, near, far, look);
+      // Remembered so the budget can put the shafts back exactly as the
+      // weather asked for them rather than at some default.
+      this.shaftStrength = this.atmosphere.uniforms.get('uShafts').value;
+      if (this.shed.has('shafts')) this.atmosphere.uniforms.get('uShafts').value = 0;
     } else {
       this.scene.fog = new THREE.Fog(color, near, far);
     }
@@ -652,6 +841,7 @@ export class Renderer {
    * @param {number} wetness 0 dry … 1 soaked
    */
   setReflectivity(wetness) {
+    if (this.shed.has('reflections')) return;
     this.reflections?.setStrength(clamp(wetness, 0, 1));
   }
 
@@ -670,7 +860,7 @@ export class Renderer {
    * @param {number} speedKph
    */
   setSpeedBlur(speedKph, focus) {
-    if (!this.settings.motionBlur || !this.speedBlur) return;
+    if (!this.settings.motionBlur || !this.speedBlur || this.shed.has('motionBlur')) return;
     this.speedBlur.strength = clamp((speedKph - 120) / 700, 0, 0.05);
     if (focus) this.speedBlur.centre.copy(focus);
   }
@@ -678,10 +868,13 @@ export class Renderer {
   render(dt) {
     if (this.contextLost) return;
     // Trade pixels for frame rate, or take them back when there is room.
+    const windows = this.scaler.windows;
     if (this.scaler.frame(dt) !== null) {
       this.#applyResolution();
       this.#resizeBuffers();
     }
+    // And when there are no pixels left to trade, trade something else.
+    if (this.scaler.windows !== windows) this.#budget();
     this.csm?.update();
     this.rainOnLens.update(dt);
     if (this.composer) this.composer.render(dt);

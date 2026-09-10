@@ -41,6 +41,16 @@ export class ResolutionScaler {
     this.samples = [];
     this.changes = 0;
     this.enabled = true;
+    /** Windows closed, so a caller can tell a fresh decision from a stale one. */
+    this.windows = 0;
+    /**
+     * The last window's finding: -1 short of the target, +1 room to spare,
+     * 0 on it. Pixels are only the first thing a renderer can trade, and when
+     * the scale is already on the floor and this still reads -1 there is
+     * nothing left to give — which is the renderer's cue to give up a feature
+     * instead of another tenth of the resolution.
+     */
+    this.verdict = 0;
   }
 
   /** Forgets the current window — after a resize, a pause, or a new session. */
@@ -82,6 +92,8 @@ export class ResolutionScaler {
 
     const budget = 1 / this.target;
     const previous = this.scale;
+    this.windows++;
+    this.verdict = median > budget * 1.12 ? -1 : median < budget * 0.74 ? 1 : 0;
 
     if (median > budget * 1.12) {
       // Cost goes with the pixel count, which goes with the square of the
