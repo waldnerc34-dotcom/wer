@@ -174,6 +174,19 @@ for (const tier of TIERS) {
   check(`${tier} on a phone is anti-aliased without a second pass`, !fitted.smaa && fitted.msaa > 0);
 }
 
+// Pixels are defended on a handheld: below about 1.2 drawn pixels per CSS
+// pixel a 3× screen does not look soft, it looks blocky, and that is what
+// the shed ladder is for.
+for (const tier of TIERS) {
+  const fitted = fitToDevice(QUALITY[tier], PHONE);
+  const floor = fitted.pixelRatio * (fitted.renderScale ?? 1) * fitted.minScale;
+  check(
+    `${tier} on a phone never draws fewer than ~1 pixel per CSS pixel`,
+    floor >= 0.95,
+    `${floor.toFixed(2)} device px per CSS px at the floor`,
+  );
+}
+
 // And the point of all that: Quality on a phone still has to be a step up
 // from Mobile on a phone, or the setting is a lie.
 const phoneMobile = fitToDevice(QUALITY.mobile, PHONE);

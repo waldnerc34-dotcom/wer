@@ -176,7 +176,7 @@ export class HUD {
     // The starter, and the flag.
     this.#callout(state);
     this.#result(state);
-    this.#set('detail', e.detail, state.detail ? `detail: ${state.detail}` : '');
+    this.#set('detail', e.detail, state.detail ?? '');
     this.#set('lapTime', e.lapTime, formatLap(state.lapTime));
     this.#set('last', e.lastLap, formatLap(state.lastLap));
     this.#set('best', e.bestLap, formatLap(state.bestLap));

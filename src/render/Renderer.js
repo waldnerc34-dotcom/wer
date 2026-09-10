@@ -277,10 +277,21 @@ export function fitToDevice(preset, probe = {}) {
   // pixels however large the tablet.
   delete fitted.superSampleTo;
   fitted.maxRenderScale = 1;
-  fitted.pixelRatio = Math.min(fitted.pixelRatio ?? 2, 2);
+  // Two device pixels per CSS pixel, for every tier. Capping at two is the
+  // sensible half of this; the other half is that 1.5 is *too low* on a
+  // handheld — the panel is a 3× screen, so 1.5 is already a two-times
+  // upscale before the scaler has touched anything. `#nativeRatio` still
+  // takes the minimum with the real device ratio, so a 1× tablet is
+  // unaffected.
+  fitted.pixelRatio = 2;
   fitted.maxPixels = Math.min(fitted.maxPixels ?? Infinity, 3.6e6);
   fitted.sceneryDensity = Math.min(fitted.sceneryDensity ?? 1, 1);
-  fitted.minScale = Math.min(fitted.minScale ?? 0.6, 0.55);
+  // A floor, and a fairly high one, because on a phone the scale is not the
+  // whole story: a 2× preset at 0.55 is 1.1 drawn pixels for every 3 on the
+  // glass, and what that looks like is not "softer", it is blocky. Features
+  // are the cheaper thing to give up here and the ladder above has real
+  // rungs to give — so pixels are defended and detail goes first.
+  fitted.minScale = 0.62;
   fitted.scalerWindow = Math.min(fitted.scalerWindow ?? 30, 20);
   return fitted;
 }
@@ -347,8 +358,14 @@ export class Renderer {
     // What was asked for, cut to what this machine can be asked for.
     this.settings = fitToDevice(QUALITY[quality] ?? QUALITY.high);
     this.qualityName = quality;
-    /** How many rungs of SHED are still in hand; see #budget. */
-    this.detail = SHED.length;
+    // Only the rungs this preset actually has. On a handheld `fitToDevice`
+    // has already turned off reflections, motion blur and SMAA, so counting
+    // them as things to give up burns half the ladder achieving nothing
+    // while the frames stay late — and then strips ambient occlusion, the
+    // light shafts and the shadow reach, which are the ones you can see.
+    this.ladder = SHED.filter((rung) => this.#has(rung));
+    /** How many rungs are still in hand; see #budget. */
+    this.detail = this.ladder.length;
     this.shed = new Set();
     this.pressure = 0;
     this.slack = 0;
@@ -417,6 +434,18 @@ export class Renderer {
 
     this.frameTimes = [];
     this.resize();
+  }
+
+  /** Whether a rung of the ladder is something this preset is actually doing. */
+  #has(rung) {
+    const s = this.settings;
+    if (rung === 'reflections') return Boolean(s.reflections);
+    if (rung === 'ao') return Boolean(s.ao);
+    if (rung === 'smaa') return Boolean(s.smaa);
+    if (rung === 'shafts') return Boolean(s.atmosphere);
+    if (rung === 'motionBlur') return Boolean(s.motionBlur);
+    if (rung === 'shadowRange') return Boolean(s.shadows);
+    return false;
   }
 
   /* ------------------------------------------------------------ resolution */
@@ -700,7 +729,7 @@ export class Renderer {
       }
     } else if (s.verdict > 0 && s.scale >= s.max - 1e-3) {
       this.pressure = 0;
-      if (++this.slack >= 4 && this.detail < SHED.length) {
+      if (++this.slack >= 4 && this.detail < this.ladder.length) {
         this.slack = 0;
         this.#setDetail(this.detail + 1);
       }
@@ -712,9 +741,9 @@ export class Renderer {
 
   /** @param {number} detail how many rungs of SHED are still in hand */
   #setDetail(detail) {
-    this.detail = clamp(detail, 0, SHED.length);
-    const given = SHED.length - this.detail;
-    this.shed = new Set(SHED.slice(0, given));
+    this.detail = clamp(detail, 0, this.ladder.length);
+    const given = this.ladder.length - this.detail;
+    this.shed = new Set(this.ladder.slice(0, given));
 
     // Everything here is a uniform or a pass switch, never a shader change:
     // the effects themselves already leave early when their strength is zero,
@@ -743,9 +772,16 @@ export class Renderer {
     );
   }
 
-  /** What the renderer had to give up to hold the frame rate, for the HUD. */
+  /**
+   * What the renderer had to give up to hold the frame rate, for the HUD.
+   *
+   * A count, not a list. The list was six words long, it sat in the corner
+   * panel, and it stretched that panel most of the way across the screen —
+   * a diagnostic that made the thing it was diagnosing look worse.
+   */
   get detailNote() {
-    return this.shed.size ? [...this.shed].join(' · ') : null;
+    if (!this.shed.size) return null;
+    return `detail −${this.shed.size}`;
   }
 
   /* ---------------------------------------------------------------- runtime */
