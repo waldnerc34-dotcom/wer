@@ -26,7 +26,7 @@ export class Menu {
       // circuit teaches last, and the arrows plus a car that brakes for you
       // is how someone learns it without spending a session in the gravel.
       assist: 'high',
-      quality: guessQuality(touch),
+      quality: rememberedQuality() ?? guessQuality(touch),
       // Three AI cars is plenty for a phone's CPU; five on a desktop.
       opponents: touch ? 3 : 5,
       steering: 'touch',
@@ -303,6 +303,23 @@ export class Menu {
     this.root.append(screen);
   }
 
+  /**
+   * Something went wrong that the player has to know about, because the
+   * alternative is a black rectangle and a working sound track.
+   */
+  showError({ title, body, actionLabel = 'Reload', onAction }) {
+    this.clear();
+    const screen = el('div', 'screen');
+    const card = el('div', 'card');
+    card.innerHTML = `
+      <h1 class="wordmark">${title}</h1>
+      <p class="tagline">${body}</p>
+      <div class="actions"><button class="btn" data-action>${actionLabel}</button></div>`;
+    card.querySelector('[data-action]').addEventListener('click', () => onAction?.());
+    screen.append(card);
+    this.root.append(screen);
+  }
+
   /* --------------------------------------------------------------- results */
 
   showResults({ laps, bestLap, trackName, carName, onClose }) {
@@ -338,6 +355,19 @@ function el(tag, className) {
 }
 
 /** Rough guess at what the machine can handle, so first load looks right. */
+/**
+ * A preset the last session was forced down to after the graphics driver
+ * gave up, so the same choice is not offered straight back.
+ */
+function rememberedQuality() {
+  try {
+    const q = localStorage.getItem('apex.quality.fallback');
+    return q && QUALITY[q] ? q : null;
+  } catch {
+    return null;
+  }
+}
+
 function guessQuality(touch) {
   const mem = navigator.deviceMemory ?? 8;
   const cores = navigator.hardwareConcurrency ?? 8;

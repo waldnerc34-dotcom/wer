@@ -199,7 +199,13 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   color = mix(color, hazeColor, clamp(fog, 0.0, 1.0));
 
   /* -- light shafts ----------------------------------------------------- */
-  if (uSunVisible > 0.001 && uShafts > 0.001) {
+  // The halo is worked out first so that most of the screen never walks the
+  // line of samples at all: a pixel far from the sun contributes nothing
+  // whatever the walk finds, and paying for the walk anyway is how a frame
+  // gets expensive enough for a driver to abandon it.
+  vec2 toSun = (uSunScreen - uv) * vec2(aspect, 1.0);
+  float radial = 1.0 - smoothstep(0.04, 0.5, length(toSun));
+  if (uSunVisible > 0.001 && uShafts > 0.001 && radial > 0.01) {
     vec2 delta = (uSunScreen - uv) / float(SHAFT_SAMPLES) * 0.85;
     vec2 walk = uv;
     float decay = 1.0;
@@ -213,12 +219,10 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
       decay *= 0.96;
     }
     shaft /= float(SHAFT_SAMPLES);
-    // Confine the glow to a halo around the sun, in screen space. Weighting
-    // by the world angle instead is not selective enough: across a 40° frame
-    // the angle to the sun barely changes, so every pixel got the same lift
-    // and the whole image turned to milk.
-    vec2 toSun = (uSunScreen - uv) * vec2(aspect, 1.0);
-    float radial = 1.0 - smoothstep(0.04, 0.5, length(toSun));
+    // Confined to a halo around the sun, in screen space. Weighting by the
+    // world angle instead is not selective enough: across a 40° frame the
+    // angle to the sun barely changes, so every pixel got the same lift and
+    // the whole image turned to milk.
     color += uSunColor * shaft * radial * uShafts * uSunVisible * 0.55;
   }
 

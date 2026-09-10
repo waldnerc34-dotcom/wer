@@ -638,9 +638,22 @@ machine that cannot afford 4K never allocates it. It matters: allocating a
 ambient occlusion, anti-aliasing — is several hundred megabytes, and on a
 desktop GPU that could not find it the result was a black canvas with the
 audio still playing. There is also a hard ceiling of 8.4 megapixels
-whatever the display, and a lost context is now caught, logged and answered
-by dropping to the smallest frame the preset allows rather than failing
-silently. The HUD prints the pixels actually being drawn next to the frame
+whatever the display.
+
+A lost context is the other half. When a driver decides the GPU has hung it
+resets it, and every texture and shader goes with it — the canvas turns
+black while the DOM, the HUD and the audio carry on, so nothing looks wrong
+except the game. That is now caught and said out loud: the game stops,
+explains that the driver reset, remembers a preset that asks less, and
+offers the only thing that can recover, a reload. Avoiding it in the first
+place is a matter of what one draw call is asked to do — Ultra's ray budget
+is half again over Quality's rather than double it, and both ray loops leave
+early where their result would be thrown away. The reflection march is
+skipped wherever the Fresnel term says the surface reflects almost nothing,
+which is most of the screen, and the light shafts are skipped outside the
+halo around the sun, which is also most of the screen. Two dozen dependent
+texture reads per pixel across four megapixels is a long draw call; eighty
+is long enough to be mistaken for a hang. The HUD prints the pixels actually being drawn next to the frame
 rate, so the setting has to own up to itself.
 
 Two things that were quietly costing frames everywhere: the particle systems

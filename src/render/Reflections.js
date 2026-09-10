@@ -131,6 +131,16 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
   vec3 origin = viewPositionOf(uv, depth);
   vec3 eye = normalize(origin);
 
+  // Schlick, for a dielectric: a wet road is a mirror at a glance and glass
+  // straight down. This is worked out *before* the march, not after, because
+  // it decides whether the march is worth doing at all — a surface facing the
+  // camera reflects four percent of anything, and marching two dozen taps to
+  // find out is how a frame gets expensive enough for a driver to give up on
+  // it. Most of the screen leaves here.
+  float cosTheta = clamp(-dot(eye, normal), 0.0, 1.0);
+  float fresnel = 0.04 + 0.96 * pow(1.0 - cosTheta, 5.0);
+  if (fresnel * uIntensity < 0.025) return;
+
   // Scatter the ray by the surface's roughness. The offset is per pixel and
   // per frame, so what is left after the eye averages it is a soft
   // reflection rather than a grid of artefacts.
@@ -197,11 +207,6 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth,
     if (behind > 0.0) hi = mid; else lo = mid;
     hitUv = midUv;
   }
-
-  // Schlick, for a dielectric: a wet road is a mirror at a glance and glass
-  // straight down.
-  float cosTheta = clamp(-dot(eye, normal), 0.0, 1.0);
-  float fresnel = 0.04 + 0.96 * pow(1.0 - cosTheta, 5.0);
 
   // Everything the depth buffer cannot vouch for is faded rather than faked.
   vec2 edge = smoothstep(vec2(0.0), vec2(0.16), hitUv) * smoothstep(vec2(0.0), vec2(0.16), 1.0 - hitUv);

@@ -169,8 +169,13 @@ export const QUALITY = {
     particles: 1100,
     skidSegments: 1500,
     skyResolution: 64,
-    reflections: { steps: 40, refinements: 5, maxDistance: 120, normalScale: 1 },
-    atmosphere: { samples: 40 },
+    // Twice Quality's budget was not twice the picture, and a single draw
+    // with eighty dependent texture reads per pixel across four megapixels is
+    // long enough for a driver to decide the GPU has hung and reset it — a
+    // black canvas with the sound still playing. Half again is the honest
+    // step up.
+    reflections: { steps: 28, refinements: 4, maxDistance: 110, normalScale: 1 },
+    atmosphere: { samples: 28 },
     dynamicResolution: true,
     targetFps: 60,
     minScale: 0.7,
@@ -269,8 +274,11 @@ export class Renderer {
     this.#applyResolution();
 
     // A lost context is otherwise a black canvas with the sound still
-    // playing: the DOM is fine, so nothing looks wrong except the game.
+    // playing: the DOM is fine, so nothing looks wrong except the game. It
+    // has to be said out loud, and answered — see main.js, which drops the
+    // preset and offers a reload.
     this.contextLost = false;
+    this.onContextLost = null;
     canvas.addEventListener('webglcontextlost', (event) => {
       event.preventDefault();
       this.contextLost = true;
@@ -278,6 +286,7 @@ export class Renderer {
       // this preset allows, and let the scaler earn its way up again.
       this.scaler.scale = this.scaler.min;
       console.error('APEX: the WebGL context was lost — dropping to the lowest resolution.');
+      this.onContextLost?.();
     });
     canvas.addEventListener('webglcontextrestored', () => {
       this.contextLost = false;

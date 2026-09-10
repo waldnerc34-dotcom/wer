@@ -69,6 +69,26 @@ async function start(selection) {
     game = new Game(canvas, {
       quality: selection.quality,
       onProgress: (p, label) => menu.setProgress(p, label),
+      // The graphics driver reset the GPU. Say so, remember a preset that
+      // asks less of it, and offer the one thing that can recover: a reload,
+      // since a lost context takes every texture and shader with it.
+      onContextLost: () => {
+        const safer = selection.quality === 'ultra' ? 'high' : 'medium';
+        try {
+          localStorage.setItem('apex.quality.fallback', safer);
+        } catch {
+          /* private browsing; the message still stands */
+        }
+        hudRoot.classList.add('hidden');
+        touch?.setVisible(false);
+        game?.setPaused(true);
+        menu.showError({
+          title: 'Graphics reset',
+          body: 'Your graphics driver gave up on this preset and reset the GPU, which leaves the picture black. Reloading will start you on a setting it can hold.',
+          actionLabel: 'Reload',
+          onAction: () => location.reload(),
+        });
+      },
       onState: (state) => {
         if (!hud) return;
         state.playerPosition = game.player.position;

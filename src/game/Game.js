@@ -40,13 +40,14 @@ export function availableCars() {
  * car or track.
  */
 export class Game {
-  constructor(canvas, { quality = 'high', onProgress, onReady, onState } = {}) {
+  constructor(canvas, { quality = 'high', onProgress, onReady, onState, onContextLost } = {}) {
     this.canvas = canvas;
     this.onProgress = onProgress;
     this.onReady = onReady;
     this.onState = onState;
 
     this.renderer = new Renderer(canvas, quality);
+    this.renderer.onContextLost = () => onContextLost?.();
     this.assets = new Assets(this.renderer.renderer);
     this.input = new Input();
     this.audio = new EngineAudio();
