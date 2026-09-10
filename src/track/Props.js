@@ -52,13 +52,9 @@ export class Props {
 
   /**
    * @param {import('../core/Assets.js').Assets} assets
-   * @param {string[]} [heroes] paths to race cars, for the handful in the paddock
    */
-  async build(assets, heroes = []) {
-    // Two on a desktop, none on a phone. Each one is fifty to a hundred draw
-    // calls, and they sit on the main straight — which is exactly where the
-    // frame rate is worth the most.
-    this.#plan(heroes.slice(0, this.density >= 0.8 ? 2 : 0));
+  async build(assets) {
+    this.#plan();
 
     const paths = [...this.placements.keys()].filter((p) => this.placements.get(p).length);
     const scenes = await Promise.all(
@@ -125,7 +121,7 @@ export class Props {
   }
 
   /** Where everything goes. */
-  #plan(heroes) {
+  #plan() {
     const track = this.track;
     const L = track.length;
     const rand = mulberry(Math.round(L * 7.13) >>> 0);
@@ -134,7 +130,7 @@ export class Props {
     /* -- the paddock ---------------------------------------------------- */
     // Behind the pit side of the main straight, which is the stretch before
     // the line: the one piece of every circuit a driver sees on every lap.
-    this.#paddock(L - 150, rand, heroes);
+    this.#paddock(L - 150, rand);
 
     /* -- works compounds -------------------------------------------------- */
     // Every circuit has one, and it is always exactly as untidy as this.
@@ -184,7 +180,7 @@ export class Props {
   }
 
   /** Parked cars, a couple of buildings and a wall around them. */
-  #paddock(s, rand, heroes) {
+  #paddock(s, rand) {
     const track = this.track;
     // Whichever side has room for it.
     const side = this.#site(s, 1, 60, 40) ? 1 : -1;
@@ -195,12 +191,14 @@ export class Props {
 
     // Rows of cars, nose-in, the way a paddock actually parks.
     //
-    // The front row is the real thing — the cars the race is run in, three of
-    // them, where a driver walks past on the way to the grid. Everything
-    // behind is the low-poly prop. That split is the whole trick: a race car
-    // here is fifty to a hundred primitives because every vent and badge
-    // carries its own material, and eighty of those is several hundred draw
-    // calls for a car park nobody looks at twice.
+    // Not the cars the race is run in, tempting as that was. Those models are
+    // fifty to a hundred primitives apiece — every vent and badge carries its
+    // own material, which is right for the one car filling the screen and
+    // ruinous for a car park. Two of them in the paddock was a hundred and
+    // sixty extra draw calls sitting on the main straight, which is exactly
+    // where the frame rate is worth the most; it turned a scene that rendered
+    // into one that could not finish a frame. The parked car is a five-
+    // primitive model, and from the far side of a barrier nobody can tell.
     const rows = Math.max(3, Math.round(4 * clamp(this.density, 0.5, 1.2)));
     const perRow = Math.max(4, Math.round(7 * clamp(this.density, 0.5, 1.2)));
     for (let r = 0; r < rows; r++) {
@@ -211,11 +209,10 @@ export class Props {
         const z = anchor.position.z + Math.cos(anchor.heading) * along + Math.cos(across) * back;
         const ground = terrainHeightAt(track, x, z, {});
         if (ground.edge < 24) continue;
-        const hero = r === 0 && c < heroes.length ? heroes[c] : null;
-        this.#put(hero ?? 'models/props/car.glb', new THREE.Vector3(x, ground.y, z), {
+        this.#put('models/props/car.glb', new THREE.Vector3(x, ground.y, z), {
           // Facing across the rows, alternating so the rows face each other.
           yaw: across + (r % 2 === 0 ? 0 : Math.PI) + (rand() - 0.5) * 0.06,
-          scale: hero ? 1 : 1.05,
+          scale: 1.05,
         });
       }
     }

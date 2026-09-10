@@ -140,11 +140,7 @@ export class Game {
 
     this.onProgress?.(0.60, 'Building the paddock');
     this.props = new Props(this.track, { density: this.renderer.settings.sceneryDensity });
-    await this.props.build(
-      this.assets,
-      // The cars parked in the paddock are the cars that race here.
-      availableCars().map((c) => c.model).filter(Boolean),
-    );
+    await this.props.build(this.assets);
     this.renderer.scene.add(this.props.group);
 
     if (circuit.sea) {

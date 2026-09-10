@@ -127,11 +127,7 @@ console.log('\n=== what is beside the circuit ===');
 const planFor = async (layout, density = 1) => {
   const track = new Track(layout);
   const props = new Props(track, { density });
-  await props.build({ instance: async () => { throw new Error('headless'); } }, [
-    'models/cars/ferrari.glb',
-    'models/cars/porsche911.glb',
-    'models/cars/urus.glb',
-  ]);
+  await props.build({ instance: async () => { throw new Error('headless'); } });
   return { track, props };
 };
 
@@ -150,17 +146,18 @@ for (const layout of CIRCUITS) {
   check(`${layout.id}: nothing is on the road or in the run-off`, closest >= 12, `${closest.toFixed(1)} m clear`);
   check(
     `${layout.id}: cars are parked in the paddock`,
-    [...props.placements.keys()].some((k) => k.startsWith('models/cars/')) &&
-      (props.placements.get('models/props/car.glb')?.length ?? 0) > 10,
-    `${props.placements.get('models/props/car.glb')?.length ?? 0} in the car park`,
+    (props.placements.get('models/props/car.glb')?.length ?? 0) > 10,
+    `${props.placements.get('models/props/car.glb')?.length ?? 0} parked`,
   );
 
-  // A race car is fifty to a hundred primitives; a car park's worth of them
-  // is several hundred draw calls for something nobody looks at twice.
-  const heroCount = [...props.placements.entries()]
-    .filter(([k]) => k.startsWith('models/cars/'))
-    .reduce((s, [, v]) => s + v.length, 0);
-  check(`${layout.id}: and only a handful of them are the real thing`, heroCount <= 2, `${heroCount} hero cars`);
+  // Never the race cars. Those are fifty to a hundred primitives apiece, and
+  // a car park's worth of them is several hundred draw calls sitting on the
+  // main straight — which is the difference between a scene that renders and
+  // one that cannot finish a frame.
+  check(
+    `${layout.id}: and none of them are race cars`,
+    ![...props.placements.keys()].some((k) => k.startsWith('models/cars/')),
+  );
 }
 
 // Same circuit, same paddock — a layout that moves between sessions is a
