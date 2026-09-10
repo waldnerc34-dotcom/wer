@@ -30,23 +30,36 @@ await page.locator('[data-start]').click();
 await page.waitForSelector('#hud:not(.hidden)', { timeout: 300000 });
 await page.waitForTimeout(Number(process.env.SETTLE || 8000));
 
-/** Aims the sun along the camera's own heading, and sets the guard's limit. */
-const aim = async (limit) =>
-  page.evaluate((lim) => {
-    const game = window.APEX?.game;
-    if (!game) return 'no game handle';
-    const r = game.renderer;
-    // The camera's forward is the negated third column of its world matrix;
-    // reaching for a Vector3 would need three.js in the page's scope.
-    const m = r.camera.matrixWorld.elements;
-    const az = (Math.atan2(-m[8], -m[10]) * 180) / Math.PI;
-    r.setSun(az, 9);
-    if (r.highlights) r.highlights.limit = lim;
-    return `sun at az ${az.toFixed(0)}°, guard limit ${lim}`;
-  }, limit);
+/**
+ * Puts the car somewhere round the lap and sets the bloom's blend function.
+ *
+ * Moving the *light* does not move the sun: the visible one lives in the sky
+ * texture, so the only way to look at it is to look the way the report was
+ * looking. `fraction` is how far round the lap to teleport to.
+ */
+const place = async (fraction, blend) =>
+  page.evaluate(
+    ({ f, b }) => {
+      const game = window.APEX?.game;
+      if (!game) return 'no game handle';
+      const track = game.track;
+      const s = track.length * f;
+      // A real Vector3, borrowed rather than imported.
+      const at = game.player.position.clone();
+      track.aiLineAt(s, 0.5, at);
+      const i = track.indexAt(s);
+      const heading = Math.atan2(track.tangent[i * 3], track.tangent[i * 3 + 2]);
+      game.player.reset(at, heading);
+      game.camera.reset(game.player);
+      game.renderer.bloom.blendMode.blendFunction = b;
+      return `lap ${(f * 100).toFixed(0)}%, bloom blend ${b === 0 ? 'ADD' : 'SCREEN'}`;
+    },
+    { f: fraction, b: blend },
+  );
 
-for (const [name, limit] of [['guard-off', 1e9], ['guard-on', 32]]) {
-  console.log(await aim(limit));
+const AT = Number(process.env.AT || 0.22);
+for (const [name, blend] of [['screen', 28], ['add', 0]]) {
+  console.log(await place(AT, blend));
   await page.waitForTimeout(Number(process.env.HOLD || 12000));
   await page.screenshot({ path: `shots/sun-${name}.png` });
   console.log(`  wrote shots/sun-${name}.png`);
