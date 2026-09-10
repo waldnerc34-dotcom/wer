@@ -7,7 +7,18 @@
  * after that. Nothing here is precached, so the first visit is no heavier
  * than it was.
  */
-const CACHE = 'apex-v1';
+/*
+ * Bump this whenever a file that is *not* content-hashed changes — the models,
+ * textures, skies and sounds under assets/, which are cached first-hit and
+ * served from the cache forever after. The bundles are hashed by the build and
+ * look after themselves; these do not.
+ *
+ * v2: the trackside props shipped with 4269-pixel textures, three of them
+ * carrying 208 MB of decoded image each. A phone that loaded that build has
+ * them cached at a URL that has not changed, so without this bump the fix
+ * never reaches it — it keeps serving the version that kills the tab.
+ */
+const CACHE = 'apex-v2';
 const SHELL = ['./', './index.html', './manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
