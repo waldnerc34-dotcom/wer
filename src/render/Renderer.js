@@ -614,6 +614,18 @@ export class Renderer {
     }
 
     this.bloom = new BloomEffect({
+      // Additive, not the library's default of SCREEN.
+      //
+      // Screen is `1 - (1 - x)(1 - y)`, which is a statement about two values
+      // between zero and one. This chain is HDR: the captured sun arrives at
+      // seven thousand. Both terms go hugely negative, their product goes
+      // hugely positive, and the result comes out at minus several million —
+      // on all three channels at once. AgX then floors it, and the sun
+      // renders as a black disc with a bright ring where the numbers were
+      // still small enough to stay positive. Which is exactly what it did.
+      //
+      // Adding light to light is also just what a bloom is.
+      blendFunction: BlendFunction.ADD,
       intensity: 0.62,
       luminanceThreshold: 0.78,
       luminanceSmoothing: 0.28,
