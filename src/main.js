@@ -89,6 +89,21 @@ async function start(selection) {
           onAction: () => location.reload(),
         });
       },
+      // The simulation threw, three frames running. Without this the page
+      // just goes black and stays there: the HUD is still on screen, frozen
+      // at its opening values, and nothing says why.
+      onFault: (error) => {
+        hudRoot.classList.add('hidden');
+        touch?.setVisible(false);
+        menu.showError({
+          title: 'The session stopped',
+          body: `Something in the simulation went wrong and the frame could not be finished: ${
+            error?.message ?? error
+          }. Reloading will start a fresh session.`,
+          actionLabel: 'Reload',
+          onAction: () => location.reload(),
+        });
+      },
       onState: (state) => {
         if (!hud) return;
         state.playerPosition = game.player.position;

@@ -311,13 +311,39 @@ export class Game {
 
     this.#trackFps(raw);
 
-    if (!this.paused && dt > 0) {
-      this.#step(dt);
-      this.simTime += dt;
+    try {
+      if (!this.paused && dt > 0) {
+        this.#step(dt);
+        this.simTime += dt;
+      }
+      this.renderer.render(dt);
+    } catch (error) {
+      this.#fault(error);
+      return;
     }
-
-    this.renderer.render(dt);
     this.input.endFrame();
+  }
+
+  /**
+   * What to do when a frame throws.
+   *
+   * The next animation frame is requested *before* the current one runs, so
+   * an exception in here does not stop the loop — it just skips the render.
+   * The result is a black canvas with a HUD frozen at its opening values and
+   * nothing on screen to say why, which is the single worst way for a bug to
+   * present itself: it looks exactly like a graphics driver problem, and it
+   * sends you looking at the GPU for hours. (It did.)
+   *
+   * So a throw is now loud. One is logged. Three in a row and the session
+   * stops and says so, out loud, with the message.
+   */
+  #fault(error) {
+    this.faults = (this.faults ?? 0) + 1;
+    if (this.faults === 1) console.error('APEX: the simulation threw —', error);
+    if (this.faults < 3) return;
+    this.stop();
+    this.running = false;
+    this.onFault?.(error);
   }
 
   #step(dt) {
