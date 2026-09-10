@@ -355,6 +355,13 @@ export class Props {
     const dummy = new THREE.Object3D();
 
     for (const mesh of meshes) {
+      // The village pack ships every one of these double-sided, which means
+      // no back-face culling: every wall of every cottage is rasterised from
+      // the inside as well as the outside, and so is every one of its shadow
+      // map passes. They are solid objects — barrels, sheds, fence posts —
+      // and nobody is ever inside one. Front faces only, and the trackside
+      // costs half what it did.
+      if (mesh.material.side === THREE.DoubleSide) mesh.material.side = THREE.FrontSide;
       const instanced = new THREE.InstancedMesh(mesh.geometry, mesh.material, placements.length);
       // Only the things big enough for their shadow to be worth another pass
       // over them cast one. A fence panel's shadow is a line on the grass.

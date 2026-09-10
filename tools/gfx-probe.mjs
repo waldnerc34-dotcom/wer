@@ -108,6 +108,26 @@ await page.locator('[data-start]').click();
 await page.waitForSelector('#hud:not(.hidden)', { timeout: 300000 });
 await page.waitForTimeout(Number(process.env.SETTLE || 6000));
 
+// Actual frame times, which is the number that matters and the one the HUD
+// cannot show: below one frame a second its counter reads zero, and a black
+// screenshot looks the same whether the frame is slow or broken.
+const frames = await page.evaluate(
+  (n) =>
+    new Promise((resolve) => {
+      const times = [];
+      let last = performance.now();
+      const tick = () => {
+        const now = performance.now();
+        times.push(now - last);
+        last = now;
+        if (times.length < n) requestAnimationFrame(tick);
+        else resolve(times);
+      };
+      requestAnimationFrame(tick);
+    }),
+  Number(process.env.FRAMES || 4),
+);
+
 const state = await page.evaluate(() => {
   const canvas = document.querySelector('canvas');
   const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
@@ -140,6 +160,8 @@ const mean = sum / total;
 
 console.log(`${QUALITY} @ ${W}×${H} dpr ${DPR}`);
 console.log(`  drawing buffer ${state.drawing} · context ${state.lost ? 'LOST' : 'ok'}`);
+const median = [...frames].sort((a, b) => a - b)[frames.length >> 1];
+console.log(`  frame ${median.toFixed(0)} ms (${(1000 / median).toFixed(1)} fps) · [${frames.map((f) => f.toFixed(0)).join(', ')}]`);
 console.log(`  ${(litShare * 100).toFixed(1)}% lit · mean ${mean.toFixed(0)}/255 · ${tones.size} tones`);
 if (state.hud) console.log(`  hud: ${state.hud.trim()}`);
 if (logs.length) console.log('  console:\n' + logs.slice(0, 14).map((l) => '    ' + l).join('\n'));
