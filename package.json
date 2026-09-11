@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "APEX — a physically-based 3D racing simulator built on three.js",
+  "description": "APEX \u2014 a physically-based 3D racing simulator built on three.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -33,7 +33,8 @@
     "test:handling": "node tests/handling.test.mjs && node tests/net.test.mjs && node tests/ghost.test.mjs",
     "start": "vite build && node tools/serve.mjs",
     "serve": "node tools/serve.mjs",
-    "icons": "node tools/make-icons.mjs"
+    "icons": "node tools/make-icons.mjs",
+    "probe:direct": "node tools/direct-probe.mjs"
   },
   "dependencies": {
     "@trystero-p2p/mqtt": "^0.25.4",

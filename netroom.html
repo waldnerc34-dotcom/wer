@@ -19,6 +19,8 @@ const q = new URLSearchParams(location.search);
 const NAME = q.get('name') ?? 'Driver';
 const CODE = q.get('code') ?? 'TEST1';
 const RELAY = q.get('relay') ?? 'ws://127.0.0.1:8099';
+// No matchmaking at all: the only way anyone gets in is a pasted handshake.
+const SOLO = q.has('solo');
 
 const log = (msg) => {
   document.getElementById('out').textContent = msg;
@@ -37,14 +39,16 @@ window.__state = state;
 const net = new Multiplayer({
   code: CODE,
   identity: () => ({ name: NAME, carId: 'rosso' }),
-  transports: [
-    {
-      id: 'local',
-      label: 'local relay',
-      load: async () => (config, roomId, callbacks) =>
-        joinRoom({ ...config, relayConfig: { urls: [RELAY] } }, roomId, callbacks),
-    },
-  ],
+  transports: SOLO
+    ? []
+    : [
+        {
+          id: 'local',
+          label: 'local relay',
+          load: async () => (config, roomId, callbacks) =>
+            joinRoom({ ...config, relayConfig: { urls: [RELAY] } }, roomId, callbacks),
+        },
+      ],
   onRoster: (rows) => {
     state.roster = rows.map((r) => ({
       name: r.name, carId: r.carId, slot: r.slot, host: r.host, self: !!r.self, ping: r.ping,

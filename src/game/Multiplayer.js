@@ -29,6 +29,9 @@ export const PROTOCOL = 1;
 /** Nobody should be racing more than this many people over a mesh. */
 export const MAX_DRIVERS = 8;
 
+/** How long an empty room is patience rather than a problem. */
+const STALL_MS = 25000;
+
 export class Multiplayer {
   /**
    * @param {object} opts
@@ -186,12 +189,64 @@ export class Multiplayer {
     }
     if (s.peers) return 'Found somebody — opening the connection…';
     if (!s.networks) {
-      return 'Could not reach any of the matchmaking networks. Some office, ' +
-        'school and mobile networks block them.';
+      return 'Could not reach any matchmaking network from here. Some home ' +
+        'routers, school and office networks block them. Use Connect directly ' +
+        'below — it needs none of them.';
     }
     const via = s.failed.length ? ` (${s.failed.join(' and ')} unreachable)` : '';
+    if (this.stalled) {
+      return `Listening on ${s.networks} of ${s.total} networks${via}, but ` +
+        'nobody has turned up. Check they typed the same code on this same ' +
+        'screen — or use Connect directly below, which does not need these ' +
+        'networks at all.';
+    }
     return `Listening on ${s.networks} of ${s.total} networks${via}. ` +
-      'Give your friends the code.';
+      'Give your friends the code — they need to type it on the same screen ' +
+      'and wait here too.';
+  }
+
+  /**
+   * Nobody has appeared, and enough time has passed that nobody is going to.
+   *
+   * Long enough that somebody still reading the code out is not told their
+   * network is broken, short enough to be useful: a relay that is going to
+   * introduce two people does it in a couple of seconds.
+   */
+  get stalled() {
+    return !this.drivers.size && this.room.now() > STALL_MS;
+  }
+
+  /**
+   * Everything about this room worth reading, in one block of text.
+   *
+   * A room that finds nobody looks identical whether the relays are blocked,
+   * the two people typed different codes, or the connection opened and then
+   * failed — and none of that is visible from the outside. This is small
+   * enough to paste into a message and says which of those it is.
+   */
+  diagnostics() {
+    const s = this.room.status();
+    const states = [...this.room.transportState.entries()]
+      .map(([id, state]) => `${id}=${state}`)
+      .join(' ');
+    return [
+      `apex room ${this.code}`,
+      `me ${this.selfId}`,
+      `networks ${s.networks}/${s.total} [${states}]`,
+      `peers ${s.peers} connected ${s.connected} direct ${s.direct}`,
+      `drivers ${[...this.drivers.keys()].join(',') || 'none'}`,
+      `agent ${navigator.userAgent}`,
+    ].join('\n');
+  }
+
+  /** Starts a relay-free introduction. See src/net/Direct.js. */
+  invite() {
+    return this.room.invite();
+  }
+
+  /** The other half of one. Returns the reply code to send back. */
+  acceptInvite(code) {
+    return this.room.acceptInvite(code);
   }
 
   #joined(peerId) {

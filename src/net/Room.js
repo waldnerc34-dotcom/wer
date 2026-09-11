@@ -1,5 +1,6 @@
-import { joinRoom as joinNostr, selfId } from 'trystero';
+import { defaultRelayUrls as nostrRelays, joinRoom as joinNostr, selfId } from 'trystero';
 
+import * as Direct from './Direct.js';
 import { KIND, SNAPSHOT_BYTES, readPing, readState, writePing, writeState } from './Snapshot.js';
 import { Sync } from './Sync.js';
 
@@ -44,6 +45,67 @@ const RT_LABEL = 'apex-rt';
 const REL_LABEL = 'apex-rel';
 
 /**
+ * Picks the same handful of a list on every machine.
+ *
+ * Not `Math.random`: two people have to end up asking the same relays or they
+ * are shouting into different rooms. A fixed seed with a cheap generator does
+ * that, and spreads us across the list rather than piling every player onto
+ * whichever entries happen to sort first.
+ */
+function spread(list, n, seed = 0x9e37) {
+  const pool = [...list];
+  const out = [];
+  let s = seed;
+  while (pool.length && out.length < n) {
+    s = (s * 1103515245 + 12345) & 0x7fffffff;
+    out.push(pool.splice(s % pool.length, 1)[0]);
+  }
+  return out;
+}
+
+/**
+ * Nostr relays to be introduced over.
+ *
+ * Left alone, the library picks five of its defaults using a hash of the app
+ * id — the same five on every machine, so that much works, but which five is
+ * decided by an arbitrary string this game happened to choose, and there is no
+ * reason to think those particular volunteers are up. Being introduced needs
+ * exactly one relay to answer, so the sensible move is to ask more of them,
+ * and to ask two different kinds: the four busiest relays on the network,
+ * which are the least likely to be down, and six of the smaller ones the
+ * library ships, which are the least likely to be rate-limiting us.
+ */
+const NOSTR_RELAYS = [
+  ...new Set([
+    'wss://relay.damus.io',
+    'wss://nos.lol',
+    'wss://relay.primal.net',
+    'wss://offchain.pub',
+    ...spread(nostrRelays, 6),
+  ]),
+];
+
+/**
+ * MQTT brokers, minus the library's fifth: it is the mainland China endpoint
+ * of one that is already in the list, and is slow or unreachable from most of
+ * the world.
+ */
+const MQTT_RELAYS = [
+  'wss://test.mosquitto.org:8081/mqtt',
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://public:public@public.cloud.shiftr.io',
+];
+
+/** WebTorrent trackers that speak the WebRTC flavour of the protocol. */
+const TORRENT_RELAYS = [
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.webtorrent.dev',
+  'wss://open.ftorrent.com',
+  'wss://tracker.btorrent.xyz',
+];
+
+/**
  * The ways two machines can be introduced.
  *
  * Unrelated on purpose: different protocols, on different ports, run by
@@ -55,15 +117,17 @@ const REL_LABEL = 'apex-rel';
  * are fetched at the moment a room is opened and not before.
  */
 export const TRANSPORTS = [
-  { id: 'nostr', label: 'Nostr', load: async () => joinNostr },
+  { id: 'nostr', label: 'Nostr', relays: NOSTR_RELAYS, load: async () => joinNostr },
   {
     id: 'mqtt',
     label: 'MQTT',
+    relays: MQTT_RELAYS,
     load: async () => (await import('@trystero-p2p/mqtt')).joinRoom,
   },
   {
     id: 'torrent',
     label: 'BitTorrent',
+    relays: TORRENT_RELAYS,
     load: async () => (await import('@trystero-p2p/torrent')).joinRoom,
   },
 ];
@@ -114,6 +178,8 @@ export class Room {
 
     /** transport id -> the Trystero room for it */
     this.rooms = new Map();
+    /** Connections made by hand, with no relay involved. */
+    this.direct = new Set();
     /** peerId -> {transports:Set, channels:{rt:Set, rel:Set}, sync:Sync} */
     this.peers = new Map();
     this.handlers = new Map();
@@ -156,6 +222,7 @@ export class Room {
       failed,
       peers: this.peers.size,
       connected,
+      direct: this.direct.size,
     };
   }
 
@@ -177,7 +244,13 @@ export class Room {
   async #joinOne(transport) {
     // The code doubles as the encryption password, so the handshake passing
     // through a public relay is meaningless to anyone who does not have it.
-    const config = { appId: APP_ID, password: `apex:${this.code}` };
+    const config = {
+      appId: APP_ID,
+      password: `apex:${this.code}`,
+      // Explicit, so that a relay list chosen by a hash of the app id is not
+      // the thing standing between two people and a race.
+      ...(transport.relays ? { relayConfig: { urls: transport.relays } } : {}),
+    };
     const roomId = `race-${this.code}`;
 
     try {
@@ -216,6 +289,14 @@ export class Room {
       }
     }
     this.rooms.clear();
+    for (const pc of this.direct) {
+      try {
+        pc.close();
+      } catch {
+        /* already gone */
+      }
+    }
+    this.direct.clear();
     this.joined = false;
   }
 
@@ -239,26 +320,109 @@ export class Room {
     return sync?.settled ? Math.round(sync.rtt) : null;
   }
 
+  /* ------------------------------------------------------- direct links */
+
+  /**
+   * Starts an introduction that needs no relay at all.
+   *
+   * Returns the block of text to send to the other player, and a function to
+   * feed their reply into. The connection is not usable until that reply
+   * arrives; nothing else about the room changes in the meantime, so somebody
+   * can be waiting on a pasted code and on the relays at the same time and
+   * take whichever works.
+   */
+  async invite() {
+    const link = await Direct.invite({
+      selfId: this.selfId,
+      room: this.code,
+      channels: (pc) => ({
+        rt: pc.createDataChannel(RT_LABEL, { ordered: false, maxRetransmits: 0 }),
+        rel: pc.createDataChannel(REL_LABEL),
+      }),
+    });
+
+    return {
+      code: link.code,
+      cancel: () => {
+        this.direct.delete(link.pc);
+        try {
+          link.pc.close();
+        } catch {
+          /* already gone */
+        }
+      },
+      /** @param {string} reply the code the other player sent back */
+      accept: async (reply) => {
+        const peerId = await link.accept(reply);
+        const peer = this.#adoptDirect(link.pc, peerId);
+        this.#byLabel(peer, link.channels.rt);
+        this.#byLabel(peer, link.channels.rel);
+        return peerId;
+      },
+    };
+  }
+
+  /**
+   * The other half: takes an invite and produces the reply to send back.
+   *
+   * The channels arrive from the far end once the reply has been pasted in
+   * over there, which is after this has returned — so they are picked up as
+   * they turn up rather than waited for.
+   */
+  async acceptInvite(code) {
+    let peer = null;
+    const waiting = [];
+    const link = await Direct.accept({
+      code,
+      selfId: this.selfId,
+      onChannel: (channel) => (peer ? this.#byLabel(peer, channel) : waiting.push(channel)),
+    });
+    peer = this.#adoptDirect(link.pc, link.peerId);
+    for (const channel of waiting.splice(0)) this.#byLabel(peer, channel);
+    return link.code;
+  }
+
+  /** Files a hand-made connection under the same bookkeeping as a relayed one. */
+  #adoptDirect(pc, peerId) {
+    this.direct.add(pc);
+    const { peer, fresh } = this.#record(peerId);
+    peer.transports.add('direct');
+    pc.addEventListener('connectionstatechange', () => {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        this.direct.delete(pc);
+        this.#peerDown(peerId, 'direct');
+      }
+      this.#status();
+    });
+    if (fresh) this.onJoin?.(peerId);
+    this.#status();
+    return peer;
+  }
+
   /* --------------------------------------------------------------- peers */
 
-  #peerUp(peerId, transportId, room) {
+  /** The record for one other player, made the first time they turn up. */
+  #record(peerId) {
     let peer = this.peers.get(peerId);
-    const fresh = !peer;
-    if (!peer) {
-      peer = {
-        id: peerId,
-        transports: new Set(),
-        channels: { rt: new Set(), rel: new Set() },
-        sync: new Sync(),
-        // A peer counts as joined the moment Trystero's own channel connects,
-        // which is before ours have finished opening. Anything said in that
-        // window — and the first thing said to a newcomer is who we are and
-        // what we are driving — would otherwise go straight in the bin, and
-        // they would sit in the room as an unnamed row forever.
-        outbox: [],
-      };
-      this.peers.set(peerId, peer);
-    }
+    if (peer) return { peer, fresh: false };
+    peer = {
+      id: peerId,
+      transports: new Set(),
+      channels: { rt: new Set(), rel: new Set() },
+      sync: new Sync(),
+      // A peer counts as joined the moment Trystero's own channel connects,
+      // which is before ours have finished opening. Anything said in that
+      // window — and the first thing said to a newcomer is who we are and
+      // what we are driving — would otherwise go straight in the bin, and
+      // they would sit in the room as an unnamed row forever.
+      outbox: [],
+    };
+    this.peers.set(peerId, peer);
+    return { peer, fresh: true };
+  }
+
+  #peerUp(peerId, transportId, room) {
+    const { peer, fresh } = this.#record(peerId);
     peer.transports.add(transportId);
 
     // Channels are opened on every connection to this person, not only the
@@ -306,7 +470,7 @@ export class Room {
    * Trystero needed it for its own channel — so extra channels need no
    * renegotiation and are live almost immediately.
    */
-  #openChannels(peerId, peer, pc) {
+  #openChannels(peerId, peer, pc, role = 'auto') {
     // A connection reached through two introductions is still one connection.
     if (pc.__apexWired) return;
     pc.__apexWired = true;
@@ -320,7 +484,11 @@ export class Room {
       else if (label === REL_LABEL) this.#adopt(peer, 'rel', event.channel);
     });
 
-    if (this.selfId < peerId) {
+    // A hand-made connection has fixed roles — the channels had to exist
+    // before the offer describing them was written — so it says which side it
+    // is rather than working it out from the ids.
+    const offers = role === 'auto' ? this.selfId < peerId : role === 'offer';
+    if (offers) {
       this.#adopt(
         peer,
         'rt',
@@ -328,6 +496,12 @@ export class Room {
       );
       this.#adopt(peer, 'rel', pc.createDataChannel(REL_LABEL));
     }
+  }
+
+  /** Files a channel somebody opened on us under the kind its label says. */
+  #byLabel(peer, channel) {
+    if (channel.label === RT_LABEL) this.#adopt(peer, 'rt', channel);
+    else if (channel.label === REL_LABEL) this.#adopt(peer, 'rel', channel);
   }
 
   #adopt(peer, kind, channel) {

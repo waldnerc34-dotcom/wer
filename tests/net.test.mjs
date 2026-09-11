@@ -13,6 +13,7 @@
 
 import * as THREE from 'three';
 
+import { pack, peek, unpack } from '../src/net/Direct.js';
 import { Interpolator } from '../src/net/Remote.js';
 import { KIND, SNAPSHOT_BYTES, readState, writeState } from '../src/net/Snapshot.js';
 import { Sync } from '../src/net/Sync.js';
@@ -301,6 +302,56 @@ console.log('\n=== telling the time on somebody else\'s clock ===');
     `${sync.offset.toFixed(1)} ms against ${TRUE_OFFSET}`,
   );
   check('the round trip is the quickest seen', sync.rtt < 90, `${sync.rtt.toFixed(0)} ms`);
+}
+
+/* -------------------------------------------- an introduction by hand */
+
+console.log('\n=== a handshake somebody can send in a message ===');
+{
+  // A real offer from Chrome, trimmed to the parts that matter: it is the
+  // repetitiveness of this — the same fingerprint, the same addresses, the
+  // same attribute names — that makes it worth compressing before anybody is
+  // asked to paste it anywhere.
+  const sdp = [
+    'v=0',
+    'o=- 4611731400430051336 2 IN IP4 127.0.0.1',
+    's=-',
+    't=0 0',
+    'a=group:BUNDLE 0',
+    'm=application 9 UDP/DTLS/SCTP webrtc-datachannel',
+    'c=IN IP4 0.0.0.0',
+    'a=ice-ufrag:7ZqT',
+    'a=ice-pwd:FpB1t0Ks0sHCvYn2VxD1yYqz',
+    'a=fingerprint:sha-256 7B:8B:F0:65:5F:78:E2:51:3B:AC:6F:F3:3F:46:1B:35:DC:B8:5F:64:1A:24:C2:43:F0:A1:58:D0:A1:2C:19:08',
+    'a=setup:actpass',
+    'a=mid:0',
+    'a=sctp-port:5000',
+    ...Array.from({ length: 8 }, (_, i) =>
+      `a=candidate:${842163049 + i} 1 udp 1677729535 203.0.113.${i} ${50000 + i} typ srflx raddr 192.168.1.${i} rport ${40000 + i} generation 0 ufrag 7ZqT network-cost 10`),
+  ].join('\r\n');
+
+  const code = await pack({ v: 1, t: 'o', id: 'AbCdEfGhIjKl', room: 'QWERT', sdp });
+  check('the code is safe in a URL', /^APEX1-[A-Za-z0-9\-_]+$/.test(code), `${code.length} characters`);
+  check('it is much shorter than what it carries', code.length < sdp.length * 0.6, `${code.length} against ${sdp.length}`);
+
+  const back = await unpack(code);
+  check('the session description survives exactly', back?.sdp === sdp);
+  check('so does who sent it', back?.id === 'AbCdEfGhIjKl' && back?.room === 'QWERT');
+
+  // People paste links, not codes, and they paste them with a stray newline
+  // or a wrapped line from a chat app.
+  const asLink = `https://example.com/wer/#i=${code}`;
+  check('a whole link works as well as the code', (await unpack(asLink))?.sdp === sdp);
+  const mangled = code.slice(0, 90) + '\n  ' + code.slice(90);
+  check('so does one a chat app wrapped', (await unpack(mangled))?.sdp === sdp);
+
+  check('the room is readable without opening a connection', (await peek(code))?.room === 'QWERT');
+  const reply = await pack({ v: 1, t: 'a', id: 'ZzZz', sdp });
+  check('a reply is not mistaken for an invite', (await peek(reply)) === null);
+
+  check('nonsense is refused rather than thrown', (await unpack('hello')) === null);
+  check('a truncated code is refused too', (await unpack(code.slice(0, code.length - 40))) === null);
+  check('an empty box is refused', (await unpack('')) === null);
 }
 
 console.log(failures ? `\n✖ ${failures} check(s) failed` : '\n✔ all checks passed');

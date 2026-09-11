@@ -55,7 +55,7 @@ export class Lobby {
    * @param {(name: string, code: string) => void} opts.onJoin
    * @param {() => void} opts.onBack
    */
-  showEntry({ name = '', code = '', onHost, onJoin, onBack }) {
+  showEntry({ name = '', code = '', notice = '', onHost, onJoin, onBack }) {
     this.clear();
     const screen = el('div', 'screen');
     const card = el('div', 'card lobby');
@@ -65,6 +65,7 @@ export class Lobby {
         Everyone's car is drawn from their own machine, straight to yours —
         there is no server in between to be slow. Up to ${MAX_DRIVERS} of you.
       </p>
+      ${notice ? `<p class="hint invited">${notice}</p>` : ''}
       <div class="field">
         <header><label for="lobby-name">Your name</label></header>
         <input id="lobby-name" class="text-input" maxlength="18" placeholder="Driver"
@@ -116,7 +117,7 @@ export class Lobby {
    * The room itself: who is here, what everyone is driving, and — for
    * whoever is host — what everyone is about to race.
    */
-  showRoom({ code, roster, isHost, session, carId, onCar, onSession, onStart, onLeave }) {
+  showRoom({ code, roster, isHost, session, carId, direct, diagnostics, onCar, onSession, onStart, onLeave }) {
     this.clear();
     const screen = el('div', 'screen');
     const card = el('div', 'card lobby room');
@@ -130,6 +131,22 @@ export class Lobby {
       </header>
       <p class="tagline" data-status></p>
       <p class="hint" data-session></p>
+      <details class="direct" data-direct>
+        <summary>Not finding each other? Connect directly</summary>
+        <p class="hint">
+          No matchmaking network involved: you send each other one block of
+          text, and the game connects straight across. This works on networks
+          that block everything else. As with any direct connection, the two
+          machines see each other's addresses — only send an invite to someone
+          you would race anyway.
+        </p>
+        <div class="direct-actions">
+          <button class="btn small" data-invite>Create an invite</button>
+          <button class="btn small" data-have>I was sent an invite</button>
+          <button class="btn ghost small" data-diag>Copy connection details</button>
+        </div>
+        <div class="direct-step" data-step hidden></div>
+      </details>
       <div class="field">
         <header><label>On the grid</label><span data-count></span></header>
         <ol class="grid-list" data-roster></ol>
@@ -153,6 +170,7 @@ export class Lobby {
     });
     card.querySelector('[data-leave]').addEventListener('click', onLeave);
     card.querySelector('[data-start]').addEventListener('click', onStart);
+    if (direct) this.#direct(card, direct, diagnostics);
 
     // Cars: everyone picks their own, and the room is told at once so the
     // grid on every screen shows what people are actually in.
@@ -187,8 +205,141 @@ export class Lobby {
     this.update({ roster, isHost, session, status: 'Opening the room…' });
   }
 
+  /**
+   * The relay-free handshake, as two buttons and some copying.
+   *
+   * Deliberately blunt about the order of things: whoever starts it sends one
+   * block of text and gets one back. Everything a person has to do is a
+   * numbered step with its own box, because the failure this exists to rescue
+   * — nothing happening, no explanation — is exactly what an unclear flow
+   * produces more of.
+   */
+  #direct(card, direct, diagnostics) {
+    const step = card.querySelector('[data-step]');
+    const invite = card.querySelector('[data-invite]');
+    const have = card.querySelector('[data-have]');
+    const diag = card.querySelector('[data-diag]');
+
+    const copy = (text, button) => {
+      navigator.clipboard?.writeText(text).catch(() => {});
+      const was = button.textContent;
+      button.textContent = 'Copied';
+      setTimeout(() => (button.textContent = was), 1400);
+    };
+
+    diag?.addEventListener('click', () => copy(diagnostics?.() ?? '', diag));
+
+    /** One numbered box, either something to send or something to paste. */
+    const box = (n, label, { value = null, hint = '', action = null } = {}) => {
+      const wrap = el('div', 'direct-box');
+      wrap.innerHTML = `
+        <header><span class="step-n">${n}</span><label>${label}</label></header>
+        <textarea class="text-input handshake" rows="3" spellcheck="false"
+                  ${value === null ? 'placeholder="Paste it here"' : 'readonly'}></textarea>
+        ${hint ? `<p class="hint">${hint}</p>` : ''}
+        <button class="btn small">${value === null ? action.label : 'Copy'}</button>`;
+      const area = wrap.querySelector('textarea');
+      const button = wrap.querySelector('button');
+      if (value === null) {
+        button.addEventListener('click', () => action.run(area.value, button));
+      } else {
+        area.value = value;
+        button.addEventListener('click', () => copy(value, button));
+        // Reading a thousand characters out loud is not the plan, so the
+        // box selects itself for anyone whose browser refuses the clipboard.
+        area.addEventListener('focus', () => area.select());
+      }
+      return wrap;
+    };
+
+    const show = (...nodes) => {
+      step.innerHTML = '';
+      step.hidden = false;
+      step.append(...nodes);
+    };
+
+    const note = (text, kind = 'hint') => el('p', kind, text);
+
+    const busy = (button, text) => {
+      button.disabled = true;
+      const was = button.textContent;
+      button.textContent = text;
+      return () => {
+        button.disabled = false;
+        button.textContent = was;
+      };
+    };
+
+    invite.addEventListener('click', async () => {
+      const done = busy(invite, 'Working…');
+      try {
+        const link = await direct.invite();
+        show(
+          box(1, 'Send this to your friend', {
+            value: shareable(link.code),
+            hint: 'Any message, chat or email will do — it is long, so send all ' +
+              'of it. Opening it puts them straight in this room.',
+          }),
+          box(2, 'Paste the code they send back', {
+            action: {
+              label: 'Connect',
+              run: async (text, button) => {
+                const finish = busy(button, 'Connecting…');
+                try {
+                  await link.accept(text);
+                  show(note('Connected. They will appear on the grid in a moment.', 'tagline'));
+                } catch (err) {
+                  finish();
+                  step.append(note(message(err), 'hint warn'));
+                }
+              },
+            },
+          }),
+        );
+      } catch (err) {
+        show(note(message(err), 'hint warn'));
+      }
+      done();
+    });
+
+    // Following an invite link lands here with the code already in hand, so
+    // the first step is done for them and only the reply is left.
+    this.useInvite = (code) => {
+      card.querySelector('[data-direct]').open = true;
+      have.click();
+      const area = step.querySelector('textarea');
+      area.value = code;
+      step.querySelector('button').click();
+    };
+
+    have.addEventListener('click', () => {
+      show(
+        box(1, 'Paste the invite you were sent', {
+          action: {
+            label: 'Continue',
+            run: async (text, button) => {
+              const finish = busy(button, 'Working…');
+              try {
+                const reply = await direct.accept(text);
+                show(
+                  box(2, 'Send this back to them', {
+                    value: reply,
+                    hint: 'Then wait here. You will appear on each other’s grid.',
+                  }),
+                );
+              } catch (err) {
+                finish();
+                step.append(note(message(err), 'hint warn'));
+              }
+            },
+          },
+        }),
+      );
+    });
+  }
+
   /** Refreshes the parts of the room that change while you sit in it. */
-  update({ roster = [], isHost = false, session = null, status = undefined } = {}) {
+  update({ roster = [], isHost = false, session = null, status = undefined, suggestDirect = false } = {}) {
     if (!this.node) return;
     const list = this.node.querySelector('[data-roster]');
     if (!list) return;
@@ -229,6 +380,15 @@ export class Lobby {
     // the second left a player with nobody in it and nothing to go on.
     const line = this.node.querySelector('[data-status]');
     if (line && status !== null) line.textContent = status;
+
+    // A room that has found nobody opens the way out by itself, once. Left
+    // folded away behind a heading, it is the thing a stuck player never
+    // finds — and it is the thing that would have worked.
+    const panel = this.node.querySelector('[data-direct]');
+    if (panel && suggestDirect && !panel.dataset.nudged) {
+      panel.dataset.nudged = '1';
+      panel.open = true;
+    }
 
     const sessionLine = this.node.querySelector('[data-session]');
     if (sessionLine) {
@@ -276,6 +436,14 @@ export class Lobby {
   }
 }
 
+/** An invite as something to send: a link where there is one, the code itself
+ * where there is not — a page opened from a file has no address worth sharing. */
+const shareable = (code) =>
+  location.protocol.startsWith('http')
+    ? `${location.origin}${location.pathname}#i=${code}`
+    : code;
+
+const message = (err) => err?.message || String(err) || 'That did not work.';
 const nameOf = (id) => CIRCUITS.find((c) => c.id === id)?.name ?? '—';
 const labelOf = (list, id) => list.find(([key]) => key === id)?.[1] ?? '—';
 const escape = (s) =>

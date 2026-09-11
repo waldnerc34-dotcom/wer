@@ -763,7 +763,12 @@ html, body {
   .hero { flex-direction: row; align-items: center; gap: 16px; }
   .hero .mark { width: 44px; height: 44px; border-radius: 11px; }
   .wordmark { font-size: 64px; }
-  .strap, .tagline, .stats, .keys { display: none; }
+  /* Only the start screen's sales pitch folds away on a small screen. This
+     used to hide every .strap and .tagline on the site, which took the room's
+     connection status and the Room code label with it — so on a phone, and on
+     any window under a thousand pixels, a room that had found nobody said
+     nothing at all about why. */
+  .hero .strap, .hero .tagline, .hero .stats, .hero .keys { display: none; }
   .ghost-track { right: -30vw; width: 110vw; opacity: 0.05; }
   .picker { gap: 12px; }
   .choice.car { width: 150px; }
@@ -1183,6 +1188,78 @@ html.is-touch, html.is-touch body {
 .btn.small { font-size: 14px; padding: 7px 12px; }
 
 .hint { font-size: 12px; color: var(--ink-dim); margin: 0; }
+
+/* ------------------------------------------------- connecting by hand */
+
+.hint.invited {
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.hint.warn { color: var(--red); }
+
+.direct {
+  border: 1px solid var(--panel-line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.direct > summary {
+  font-family: var(--display);
+  font-size: 15px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  cursor: pointer;
+  list-style: none;
+}
+.direct > summary::-webkit-details-marker { display: none; }
+.direct > summary::after { content: ' ›'; }
+.direct[open] > summary { color: var(--ink); margin-bottom: 10px; }
+.direct[open] > summary::after { content: ' ⌄'; }
+.direct > .hint { line-height: 1.55; }
+
+.direct-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.direct-step { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+.direct-box { display: flex; flex-direction: column; gap: 7px; }
+.direct-box > header { display: flex; align-items: center; gap: 8px; }
+.direct-box label {
+  font-family: var(--display);
+  font-size: 14px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+.direct-box .btn { align-self: flex-start; }
+
+.step-n {
+  font-family: var(--mono);
+  font-size: 11px;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #04121b;
+}
+
+.text-input.handshake {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0;
+  line-height: 1.35;
+  resize: vertical;
+  word-break: break-all;
+}
 
 .room-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .code-big {

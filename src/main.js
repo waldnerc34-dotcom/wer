@@ -7,6 +7,7 @@ import { Menu } from './ui/Menu.js';
 import { Lobby } from './ui/Lobby.js';
 import { NameTags } from './ui/NameTags.js';
 import { Multiplayer, makeRoomCode } from './game/Multiplayer.js';
+import { peek } from './net/Direct.js';
 import { Records, aidCode } from './game/Records.js';
 
 const canvas = document.getElementById('viewport');
@@ -46,8 +47,48 @@ function fail(message, detail) {
 
 if (!supportsWebGL2()) {
   fail('APEX needs WebGL2. Try a current version of Chrome, Edge, Firefox or Safari.');
+} else if (inviteInUrl()) {
+  followInvite(inviteInUrl());
 } else {
   menu.showStart(start, { records, onMultiplayer: openLobby });
+}
+
+/** An invite somebody sent as a link, if this page was opened from one. */
+function inviteInUrl() {
+  const match = /[#&?]i=([A-Za-z0-9\-_]+)/.exec(location.hash || '');
+  return match?.[1] ? `APEX1-${match[1].replace(/^APEX1-/, '')}` : null;
+}
+
+/**
+ * Opening an invite link.
+ *
+ * It carries the room it belongs to and one half of a connection, so all that
+ * is missing is a name. The link is taken out of the address bar on the way
+ * past: a handshake is good once, and a reloaded page would try to use it
+ * again and quietly fail.
+ */
+async function followInvite(code) {
+  const payload = await peek(code).catch(() => null);
+  history.replaceState(null, '', location.pathname + location.search);
+
+  if (!payload) {
+    menu.showStart(start, { records, onMultiplayer: openLobby });
+    return;
+  }
+  lobby.showEntry({
+    name: records.driver,
+    code: payload.room ?? '',
+    notice:
+      'You have been invited to a race. Put your name in and join — this ' +
+      'connects straight to their machine, with no matchmaking network in ' +
+      'between, so it works on networks that block the ordinary way in.',
+    onBack: () => {
+      lobby.clear();
+      menu.showStart(start, { records, onMultiplayer: openLobby });
+    },
+    onHost: (name) => enterRoom(name, makeRoomCode()),
+    onJoin: (name, room) => enterRoom(name, room, { invite: code }),
+  });
 }
 
 // Installable, and playable offline once everything has been fetched once.
@@ -81,7 +122,21 @@ function openLobby() {
   });
 }
 
-function enterRoom(name, code) {
+/**
+ * The handles the room screen needs for the relay-free handshake, and for
+ * saying what the connection is actually doing.
+ */
+function roomTools() {
+  return {
+    direct: {
+      invite: () => net.invite(),
+      accept: (code) => net.acceptInvite(code),
+    },
+    diagnostics: () => net.diagnostics(),
+  };
+}
+
+function enterRoom(name, code, { invite = null } = {}) {
   records.driver = name;
   let carId = lastSelection?.carId ?? availableCars()[0].id;
 
@@ -92,6 +147,7 @@ function enterRoom(name, code) {
       isHost: net.isHost,
       session: net.session,
       status: net.describe(),
+      suggestDirect: net.stalled,
     });
   };
 
@@ -132,6 +188,7 @@ function enterRoom(name, code) {
     isHost: net.isHost,
     session: net.session,
     carId,
+    ...roomTools(),
     onCar: (id) => {
       carId = id;
       net.refreshIdentity();
@@ -140,6 +197,10 @@ function enterRoom(name, code) {
     onStart: () => net.start(),
     onLeave: leaveRoom,
   });
+
+  // Someone followed an invite link. The handshake it carries is independent
+  // of the relays, so this runs whether or not they are reachable.
+  if (invite) lobby.useInvite?.(invite);
 
   try {
     net.join();
@@ -420,6 +481,7 @@ function pause() {
               isHost: net.isHost,
               session: net.session,
               carId: lastSelection?.carId,
+              ...roomTools(),
               onCar: (id) => {
                 lastSelection = { ...lastSelection, carId: id };
                 net.refreshIdentity();
